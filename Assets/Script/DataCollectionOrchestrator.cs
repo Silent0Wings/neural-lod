@@ -6,29 +6,26 @@ using UnityEditor;
 #endif
 
 /// <summary>
-/// DataCollectionOrchestrator
+/// DataCollectionOrchestrator (Fixed)
 /// Automates data collection across all combinations of:
 ///   bias values × move speeds × rotate speeds
+
 /// 
 /// Workflow per run:
 ///   1. Apply bias, moveSpeed, rotateSpeed
 ///   2. Reset MetricLogger (new CSV file)
-///   3. Reset CameraPathAnimator (camera back to node 0)
-///   4. Wait for MetricLogger.loggingComplete
-///   5. Advance to next combination
-///   6. When all done — terminate play mode
-/// 
-/// Setup:
-///   - Attach to any GameObject
-///   - Assign references in Inspector
-///   - Set controlledByOrchestrator = true on RunTerminator
-///   - Set loop = true on CameraPathAnimator (orchestrator manages stopping)
+///   3. Reset CameraPathAnimator (camera back to node 0, paused)
+///   4. Wait warmupDelay seconds (camera frozen)
+///   5. Unpause camera, enable logger
+///   6. Wait for MetricLogger.loggingComplete
+///   7. Advance to next combination
+///   8. When all done — terminate play mode
 /// </summary>
 public class DataCollectionOrchestrator : MonoBehaviour
 {
-    // ─────────────────────────────────────────
+    // ─
     // Run parameters — set in Inspector
-    // ─────────────────────────────────────────
+    // ─
     [Header("Run Parameters")]
     public float[] biasValues   = { 0.1f, 0.5f, 1.0f, 2.0f };
     public float[] moveSpeeds   = { 3.0f, 5.0f, 8.0f };
@@ -43,9 +40,9 @@ public class DataCollectionOrchestrator : MonoBehaviour
     public LODBiasController  lodController;
     public RunTerminator      terminator;
 
-    // ─────────────────────────────────────────
+    // ─
     // Status — read-only in Inspector
-    // ─────────────────────────────────────────
+    // ─
     [Header("Status (read-only)")]
     [SerializeField] private int   _currentRun   = 0;
     [SerializeField] private int   _totalRuns    = 0;
@@ -54,17 +51,17 @@ public class DataCollectionOrchestrator : MonoBehaviour
     [SerializeField] private float _currentRot   = 0f;
     [SerializeField] private bool  _allDone      = false;
 
-    // ─────────────────────────────────────────
+    // ─
     // Internal
-    // ─────────────────────────────────────────
+    // ─
     private List<(float bias, float speed, float rot)> _runs;
     private bool  _waitingForWarmup = false;
     private float _warmupTimer      = 0f;
     private bool  _runStarted       = false;
 
-    // ─────────────────────────────────────────
+    // ─
     // Init
-    // ─────────────────────────────────────────
+    // ─
     void Awake()
     {
         if (cpa          == null) cpa          = FindFirstObjectByType<CameraPathAnimator>();
@@ -95,9 +92,9 @@ public class DataCollectionOrchestrator : MonoBehaviour
         StartRun(_currentRun);
     }
 
-    // ─────────────────────────────────────────
+    // ─
     // Build cartesian product
-    // ─────────────────────────────────────────
+    // ─
     private void BuildRunList()
     {
         _runs = new List<(float, float, float)>();
@@ -112,9 +109,9 @@ public class DataCollectionOrchestrator : MonoBehaviour
                   $"({biasValues.Length} bias × {moveSpeeds.Length} speeds × {rotateSpeeds.Length} rotations).");
     }
 
-    // ─────────────────────────────────────────
+    // ─
     // Start a specific run by index
-    // ─────────────────────────────────────────
+    // ─
     private void StartRun(int index)
     {
         var (bias, speed, rot) = _runs[index];
@@ -125,16 +122,19 @@ public class DataCollectionOrchestrator : MonoBehaviour
 
         // 1. Apply parameters
         lodController.UpdateBias(bias);
-        cpa.moveSpeed           = speed;
-        cpa.rotateSpeed         = rot;
+        cpa.moveSpeed   = speed;
+        cpa.rotateSpeed = rot;
 
         // 2. Reset logger — opens new CSV
         logger.ResetLogger(index, _currentSpeed, _currentRot);
 
-        // 3. Reset camera path
+        // 3. Reset camera path — snaps to node 0
         cpa.ResetPath();
 
-        // 4. Begin warmup — don't log yet
+        // FIX #5: Pause camera during warmup so it stays at node 0
+        cpa.IsPaused = true;
+
+        // 4. Begin warmup — camera frozen, logger not yet recording
         _waitingForWarmup = true;
         _warmupTimer      = 0f;
         _runStarted       = false;
@@ -143,14 +143,14 @@ public class DataCollectionOrchestrator : MonoBehaviour
                   $"bias={bias} | speed={speed} | rot={rot}");
     }
 
-    // ─────────────────────────────────────────
+    // ─
     // Update — manage warmup + run completion
-    // ─────────────────────────────────────────
+    // ─
     void Update()
     {
         if (_allDone) return;
 
-        // warmup phase — wait before enabling logger
+        // warmup phase — camera frozen, wait before enabling logger
         if (_waitingForWarmup)
         {
             _warmupTimer += Time.deltaTime;
@@ -159,7 +159,11 @@ public class DataCollectionOrchestrator : MonoBehaviour
             {
                 _waitingForWarmup = false;
                 _runStarted       = true;
+
+                // FIX #5: Unpause camera and start logging simultaneously
+                cpa.IsPaused      = false;
                 logger.enabled    = true;
+
                 Debug.Log($"[Orchestrator] Warmup done — logging started for run {_currentRun + 1}.");
             }
             return;
@@ -172,22 +176,20 @@ public class DataCollectionOrchestrator : MonoBehaviour
 
             if (_currentRun >= _totalRuns)
             {
-                // all runs complete
                 _allDone = true;
                 Debug.Log($"[Orchestrator] All {_totalRuns} runs complete. Terminating.");
                 Terminate();
             }
             else
             {
-                // next run
                 StartRun(_currentRun);
             }
         }
     }
 
-    // ─────────────────────────────────────────
+    // ─
     // Terminate
-    // ─────────────────────────────────────────
+    // ─
     private void Terminate()
     {
 #if UNITY_EDITOR

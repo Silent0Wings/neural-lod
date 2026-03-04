@@ -4,15 +4,7 @@ using UnityEngine;
 using UnityEditor;
 #endif
 
-/// <summary>
-/// RunTerminator
-/// Exits play mode (Editor) or quits application (Build).
-/// Two termination modes — toggle via Inspector:
-///   - PathComplete : stops when CameraPathAnimator finishes
-///   - RowCount     : stops when MetricLogger hits target row count
-/// Set controlledByOrchestrator = true to disable self-termination
-/// when DataCollectionOrchestrator is managing the run loop.
-/// </summary>
+
 public class RunTerminator : MonoBehaviour
 {
     public enum TerminationMode
@@ -24,7 +16,7 @@ public class RunTerminator : MonoBehaviour
     [Header("Settings")]
     public TerminationMode mode                   = TerminationMode.RowCount;
     public float           checkInterval          = 0.5f;
-    public bool            controlledByOrchestrator = false; // ← set true when orchestrator is active
+    public bool            controlledByOrchestrator = false;
 
     [Header("References")]
     public CameraPathAnimator cpa;
@@ -32,7 +24,6 @@ public class RunTerminator : MonoBehaviour
 
     private float _timer = 0f;
 
-    // ─────────────────────────────────────────
     void Awake()
     {
         if (cpa == null)
@@ -51,10 +42,8 @@ public class RunTerminator : MonoBehaviour
             cpa.loop = true;
     }
 
-    // ─────────────────────────────────────────
     void Update()
     {
-        // yield control to orchestrator if active
         if (controlledByOrchestrator) return;
 
         _timer += Time.deltaTime;
@@ -81,7 +70,6 @@ public class RunTerminator : MonoBehaviour
         }
     }
 
-    // ─────────────────────────────────────────
     public void Terminate()
     {
 #if UNITY_EDITOR

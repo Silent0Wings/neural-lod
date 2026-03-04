@@ -58,18 +58,46 @@ public class CameraPathAnimator : MonoBehaviour
     public float rotateSpeed = 5.0f;
     public bool loop = true;
     public Transform path_transform;
-    public bool completed=false;
+    public bool completed = false;
+
     [Header("Debug")]
     public bool drawGizmos = true;
+
+    [Header("Node Timeout")]
+    public float nodeTimeout = 5.0f; // seconds max per node
+    private float _nodeTimer = 0f;
 
     // Internal path instance
     private Path _path = new Path();
     private int _currentIndex = 0;
     private bool _isRunning = false;
 
-    
-    // Setup — read waypoints from child transforms
-    // Hierarchy: this → Path → [node_00, node_01, ...]
+    // Public property so the orchestrator can freeze movement
+    public bool IsPaused { get; set; } = false;
+
+    /// <summary>
+    /// Normalized progress along the current segment [0,1).
+    /// currentIndex + fraction gives a continuous path_progress value.
+    /// </summary>
+    public float PathProgress
+    {
+        get
+        {
+            if (_path.Count == 0) return 0f;
+            Node target = _path.GetNode(_currentIndex);
+            // Get the previous node to measure segment length
+            int prevIndex = (_currentIndex - 1 + _path.Count) % _path.Count;
+            Node prev = _path.GetNode(prevIndex);
+            float segmentLength = Vector3.Distance(prev.position, target.position);
+            if (segmentLength < 0.001f) return _currentIndex;
+            float distToTarget = Vector3.Distance(transform.position, target.position);
+            float fraction = 1f - Mathf.Clamp01(distToTarget / segmentLength);
+            return _currentIndex + fraction;
+        }
+    }
+
+    public int CurrentIndex => _currentIndex;
+    public int NodeCount => _path.Count;
 
 
     void Awake()
@@ -126,34 +154,50 @@ public class CameraPathAnimator : MonoBehaviour
     }
 
     
-    // Update — move toward current target node
+    // Single arrival check — no more double AdvanceNode() 
+    // Previously there were two distance checks that could both fire in the
+    // same frame, causing the camera to skip an entire waypoint.
+    // Now there is exactly one arrival/timeout check per frame.
     
     void Update()
     {
         if (!_isRunning || _path.Count == 0) return;
 
+        //  If paused by orchestrator during warmup, do nothing
+        if (IsPaused) return;
+
+        _nodeTimer += Time.deltaTime;
         Node target = _path.GetNode(_currentIndex);
 
-        // Move
+        //  Single arrival / timeout check 
+        bool arrived = Vector3.Distance(transform.position, target.position) < 0.05f;
+        bool timedOut = _nodeTimer >= nodeTimeout;
+
+        if (arrived || timedOut)
+        {
+            if (timedOut)
+                Debug.LogWarning($"[CameraPathAnimator] Node {target.id} timed out.");
+            else
+                Debug.Log($"[CameraPathAnimator] Reached node: {target.id}");
+
+            AdvanceNode();
+            _nodeTimer = 0f;
+            return; // skip movement this frame — start fresh next frame
+        }
+
+        //  Move toward target 
         transform.position = Vector3.MoveTowards(
             transform.position,
             target.position,
             moveSpeed * Time.deltaTime
         );
 
-        // Rotate
+        //  Rotate toward target 
         transform.rotation = Quaternion.Slerp(
             transform.rotation,
             target.rotation,
             rotateSpeed * Time.deltaTime
         );
-
-        // Reached target node?
-        if (Vector3.Distance(transform.position, target.position) < 0.05f)
-        {
-            Debug.Log($"[CameraPathAnimator] Reached node: {target.id}");
-            AdvanceNode();
-        }
     }
 
     
@@ -173,7 +217,7 @@ public class CameraPathAnimator : MonoBehaviour
             else
             {
                 _isRunning = false;
-                completed = true;  
+                completed = true;
                 Debug.Log("[CameraPathAnimator] Path complete.");
             }
         }
@@ -209,23 +253,23 @@ public class CameraPathAnimator : MonoBehaviour
         }
     }
 
-	// Reset — restart path from node 0
+    // Reset — restart path from node 0
 
-	public void ResetPath()
-	{
-		if (_path.Count == 0)
-		{
-			Debug.LogWarning("[CameraPathAnimator] Cannot reset — path is empty.");
-			return;
-		}
+    public void ResetPath()
+    {
+        if (_path.Count == 0)
+        {
+            Debug.LogWarning("[CameraPathAnimator] Cannot reset — path is empty.");
+            return;
+        }
 
-		_currentIndex = 0;
-		completed = false;
-		_isRunning = true;
+        _currentIndex = 0;
+        completed = false;
+        _isRunning = true;
 
-		transform.position = _path.GetNode(0).position;
-		transform.rotation = _path.GetNode(0).rotation;
-
-		Debug.Log("[CameraPathAnimator] Path reset to node 0.");
-	}
+        transform.position = _path.GetNode(0).position;
+        transform.rotation = _path.GetNode(0).rotation;
+        _nodeTimer = 0f;
+        Debug.Log("[CameraPathAnimator] Path reset to node 0.");
+    }
 }
