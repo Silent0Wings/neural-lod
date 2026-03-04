@@ -1,10 +1,6 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-
-// Node
-// Stores a single waypoint: position, rotation, ID
-
 [System.Serializable]
 public class Node
 {
@@ -18,10 +14,6 @@ public class Node
         this.rotation = rotation;
     }
 }
-
-
-// Path
-// Owns and controls an ordered list of Nodes
 
 [System.Serializable]
 public class Path
@@ -37,7 +29,7 @@ public class Path
 
     public Node GetNode(int index)
     {
-        return nodes[index % nodes.Count]; // wraps for looping
+        return nodes[index % nodes.Count];
     }
 
     public Node GetNextNode(int currentIndex)
@@ -45,11 +37,6 @@ public class Path
         return GetNode(currentIndex + 1);
     }
 }
-
-
-// CameraPathAnimator
-// Moves the camera along the Path deterministically
-// Attach to the Camera GameObject
 
 public class CameraPathAnimator : MonoBehaviour
 {
@@ -64,28 +51,21 @@ public class CameraPathAnimator : MonoBehaviour
     public bool drawGizmos = true;
 
     [Header("Node Timeout")]
-    public float nodeTimeout = 5.0f; // seconds max per node
+    public float nodeTimeout = 10.0f;
     private float _nodeTimer = 0f;
 
-    // Internal path instance
     private Path _path = new Path();
     private int _currentIndex = 0;
     private bool _isRunning = false;
 
-    // Public property so the orchestrator can freeze movement
     public bool IsPaused { get; set; } = false;
 
-    /// <summary>
-    /// Normalized progress along the current segment [0,1).
-    /// currentIndex + fraction gives a continuous path_progress value.
-    /// </summary>
     public float PathProgress
     {
         get
         {
             if (_path.Count == 0) return 0f;
             Node target = _path.GetNode(_currentIndex);
-            // Get the previous node to measure segment length
             int prevIndex = (_currentIndex - 1 + _path.Count) % _path.Count;
             Node prev = _path.GetNode(prevIndex);
             float segmentLength = Vector3.Distance(prev.position, target.position);
@@ -98,7 +78,6 @@ public class CameraPathAnimator : MonoBehaviour
 
     public int CurrentIndex => _currentIndex;
     public int NodeCount => _path.Count;
-
 
     void Awake()
     {
@@ -113,19 +92,20 @@ public class CameraPathAnimator : MonoBehaviour
             return;
         }
 
-        // Snap camera to first node deterministically
         transform.position = _path.GetNode(0).position;
         transform.rotation = _path.GetNode(0).rotation;
         _currentIndex = 0;
         _isRunning = true;
 
+        if (_path.Count > 1)
+        {
+            float dist = Vector3.Distance(_path.GetNode(0).position, _path.GetNode(1).position);
+            nodeTimeout = (dist / moveSpeed) * 1.5f;
+        }
+
         Debug.Log($"[CameraPathAnimator] Started. Total nodes: {_path.Count}");
     }
 
-    
-    // Build path from children of "Path" child
-    // Order = sibling index (top to bottom in Hierarchy)
-    
     void BuildPath()
     {
         Transform pathRoot;
@@ -153,24 +133,15 @@ public class CameraPathAnimator : MonoBehaviour
         Debug.Log($"[CameraPathAnimator] Built path with {_path.Count} nodes from '{pathRoot.name}'.");
     }
 
-    
-    // Single arrival check — no more double AdvanceNode() 
-    // Previously there were two distance checks that could both fire in the
-    // same frame, causing the camera to skip an entire waypoint.
-    // Now there is exactly one arrival/timeout check per frame.
-    
     void Update()
     {
         if (!_isRunning || _path.Count == 0) return;
-
-        //  If paused by orchestrator during warmup, do nothing
         if (IsPaused) return;
 
         _nodeTimer += Time.deltaTime;
         Node target = _path.GetNode(_currentIndex);
 
-        //  Single arrival / timeout check 
-        bool arrived = Vector3.Distance(transform.position, target.position) < 0.05f;
+        bool arrived  = Vector3.Distance(transform.position, target.position) < 0.05f;
         bool timedOut = _nodeTimer >= nodeTimeout;
 
         if (arrived || timedOut)
@@ -182,17 +153,15 @@ public class CameraPathAnimator : MonoBehaviour
 
             AdvanceNode();
             _nodeTimer = 0f;
-            return; // skip movement this frame — start fresh next frame
+            return;
         }
 
-        //  Move toward target 
         transform.position = Vector3.MoveTowards(
             transform.position,
             target.position,
             moveSpeed * Time.deltaTime
         );
 
-        //  Rotate toward target 
         transform.rotation = Quaternion.Slerp(
             transform.rotation,
             target.rotation,
@@ -200,32 +169,22 @@ public class CameraPathAnimator : MonoBehaviour
         );
     }
 
-    
-    // Advance to next node or stop/loop
-    
     void AdvanceNode()
     {
         _currentIndex++;
 
         if (_currentIndex >= _path.Count)
         {
-            if (loop)
-            {
-                _currentIndex = 0;
-                Debug.Log("[CameraPathAnimator] Looping path.");
-            }
-            else
-            {
-                _isRunning = false;
-                completed = true;
-                Debug.Log("[CameraPathAnimator] Path complete.");
-            }
+            if (loop) { _currentIndex = 0; }
+            else { _isRunning = false; completed = true; return; }
         }
+
+        Node next = _path.GetNode(_currentIndex);
+        float dist = Vector3.Distance(transform.position, next.position);
+        _nodeTimer = 0f;
+        nodeTimeout = (dist / moveSpeed) * 1.5f;
     }
 
-    
-    // Gizmos — visualize path in Scene view
-    
     void OnDrawGizmos()
     {
         if (!drawGizmos || _path == null || _path.Count == 0) return;
@@ -235,25 +194,20 @@ public class CameraPathAnimator : MonoBehaviour
             Node current = _path.GetNode(i);
             Node next = _path.GetNextNode(i);
 
-            // Path line + node sphere
             Gizmos.color = Color.cyan;
             Gizmos.DrawSphere(current.position, 0.2f);
             Gizmos.DrawLine(current.position, next.position);
 
-            // Forward vector arrow
             Vector3 forward = current.rotation * Vector3.forward;
             Gizmos.color = Color.blue;
             Gizmos.DrawRay(current.position, forward * 1.5f);
 
-            // Arrowhead
             Vector3 tip = current.position + forward * 1.5f;
             Vector3 right = current.rotation * Vector3.right;
             Gizmos.DrawLine(tip, tip - forward * 0.3f + right * 0.15f);
             Gizmos.DrawLine(tip, tip - forward * 0.3f - right * 0.15f);
         }
     }
-
-    // Reset — restart path from node 0
 
     public void ResetPath()
     {
@@ -270,6 +224,13 @@ public class CameraPathAnimator : MonoBehaviour
         transform.position = _path.GetNode(0).position;
         transform.rotation = _path.GetNode(0).rotation;
         _nodeTimer = 0f;
+
+        if (_path.Count > 1)
+        {
+            float dist = Vector3.Distance(_path.GetNode(0).position, _path.GetNode(1).position);
+            nodeTimeout = (dist / moveSpeed) * 1.5f;
+        }
+
         Debug.Log("[CameraPathAnimator] Path reset to node 0.");
     }
 }
