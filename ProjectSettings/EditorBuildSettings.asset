@@ -5,10 +5,10 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes:
-  - enabled: 0
-    path: Assets/Scenes/Training/animated_Cam.unity
-    guid: 146da8d359949fb47a793a6f46a8766f
   - enabled: 1
+    path: Assets/Scenes/Training/animated_Cam_Capture_Data.unity
+    guid: 146da8d359949fb47a793a6f46a8766f
+  - enabled: 0
     path: Assets/Scenes/Model/Model Loader Test.unity
     guid: f27660a32639a7142b47b5a19cdbcf92
   m_configObjects:

@@ -5,20 +5,22 @@ using System.IO;
 
 /// <summary>
 /// LODFeatureExtractor
-/// Collects the 10 runtime features used during training and applies
+/// Collects the 12 runtime features used during training and applies
 /// StandardScaler normalization using constants from scaler_constants.json.
 ///
 /// Feature order (must match FEATURE_COLS from training exactly):
-///   0  cpu_frame_time_ms
-///   1  gpu_frame_time_ms
-///   2  triangle_count
-///   3  camera_velocity
-///   4  camera_angular_velocity
-///   5  visible_renderer_count
-///   6  draw_call_estimate
-///   7  frame_headroom_ms
-///   8  screen_coverage
-///   9  lod_bias_current
+///   0   cam_rot_y
+///   1   screen_coverage
+///   2   visible_renderer_count
+///   3   cam_pos_y
+///   4   triangle_count
+///   5   path_progress
+///   6   draw_call_estimate
+///   7   camera_velocity
+///   8   gpu_frame_time_ms
+///   9   cam_pos_x
+///   10  cam_pos_z
+///   11  fps
 /// </summary>
 public class LODFeatureExtractor : MonoBehaviour
 {
@@ -27,6 +29,7 @@ public class LODFeatureExtractor : MonoBehaviour
     
     [Header("References")]
     public Camera targetCamera;
+    public CameraPathAnimator cameraPath;
 
     [Header("Scaler JSON")]
     [Tooltip("Path to scaler_constants.json inside StreamingAssets")]
@@ -39,14 +42,14 @@ public class LODFeatureExtractor : MonoBehaviour
     
     // Public output — read by NeuralLODController
     
-    public float[] NormalizedFeatures { get; private set; } = new float[10];
+    public float[] NormalizedFeatures { get; private set; } = new float[12];
     public bool    IsReady            { get; private set; } = false;
 
     
     // Scaler constants loaded from JSON
     
-    private float[] _scalerMean  = new float[10];
-    private float[] _scalerScale = new float[10];
+    private float[] _scalerMean  = new float[12];
+    private float[] _scalerScale = new float[12];
     private float   _biasMin     = 0.25f;
     private float   _biasMax     = 2.0f;
 
@@ -62,11 +65,7 @@ public class LODFeatureExtractor : MonoBehaviour
     private ProfilerRecorder _drawCallRecorder;
 
     
-    // Angular velocity tracking
     
-    private Quaternion _lastCamRotation;
-    private float      _angularVelocity  = 0f;
-    private bool       _skipAngularFrame = true;
 
     
     // Cached visibility
@@ -83,6 +82,9 @@ public class LODFeatureExtractor : MonoBehaviour
     {
         if (targetCamera == null)
             targetCamera = Camera.main;
+
+        if (cameraPath == null)
+            cameraPath = FindFirstObjectByType<CameraPathAnimator>();
 
         LoadScalerConstants();
         _allRenderers = FindObjectsByType<Renderer>(FindObjectsSortMode.None);
@@ -102,36 +104,35 @@ public class LODFeatureExtractor : MonoBehaviour
 
     void Start()
     {
-        _lastCamRotation = targetCamera.transform.rotation;
     }
 
     void Update()
     {
-        CollectRawFeatures(out float cpu, out float gpu, out float tris,
-                           out float vel, out float angVel,
-                           out float visCount, out float drawCalls,
-                           out float headroom, out float coverage,
-                           out float lodBias);
+        CollectRawFeatures(out float camRotY, out float coverage, out float visCount,
+                           out float camPosY, out float tris, out float pathProgress,
+                           out float drawCalls, out float vel, out float gpu,
+                           out float camPosX, out float camPosZ, out float fps);
 
-        UpdateAngularVelocity(ref angVel);
         UpdateCoverageCache(ref visCount, ref coverage);
 
-        float[] raw = new float[10]
+        float[] raw = new float[12]
         {
-            cpu,
-            gpu,
-            tris,
-            vel,
-            angVel,
-            visCount,
-            drawCalls,
-            headroom,
+            camRotY,
             coverage,
-            lodBias
+            visCount,
+            camPosY,
+            tris,
+            pathProgress,
+            drawCalls,
+            vel,
+            gpu,
+            camPosX,
+            camPosZ,
+            fps
         };
 
         // Apply StandardScaler: (x - mean) / scale
-        for (int i = 0; i < 10; i++)
+        for (int i = 0; i < 12; i++)
             NormalizedFeatures[i] = (raw[i] - _scalerMean[i]) / _scalerScale[i];
 
         IsReady = true;
@@ -141,17 +142,15 @@ public class LODFeatureExtractor : MonoBehaviour
     // Feature collection
     
     private void CollectRawFeatures(
-        out float cpu, out float gpu, out float tris,
-        out float vel, out float angVel,
-        out float visCount, out float drawCalls,
-        out float headroom, out float coverage,
-        out float lodBias)
+        out float camRotY, out float coverage, out float visCount,
+        out float camPosY, out float tris, out float pathProgress,
+        out float drawCalls, out float vel, out float gpu,
+        out float camPosX, out float camPosZ, out float fps)
     {
         // Frame timing
         FrameTimingManager.CaptureFrameTimings();
         uint count = FrameTimingManager.GetLatestTimings(1, _frameTimings);
 
-        cpu = count > 0 ? (float)_frameTimings[0].cpuFrameTime : 0f;
         gpu = count > 0 ? (float)_frameTimings[0].gpuFrameTime : 0f;
 
         // Triangle and draw call counts
@@ -161,39 +160,21 @@ public class LODFeatureExtractor : MonoBehaviour
         // Camera linear velocity
         vel = targetCamera != null ? targetCamera.velocity.magnitude : 0f;
 
-        // Angular velocity — filled by UpdateAngularVelocity
-        angVel = _angularVelocity;
+        // Position and rotation
+        camPosX = targetCamera != null ? targetCamera.transform.position.x : 0f;
+        camPosY = targetCamera != null ? targetCamera.transform.position.y : 0f;
+        camPosZ = targetCamera != null ? targetCamera.transform.position.z : 0f;
+        camRotY = targetCamera != null ? targetCamera.transform.eulerAngles.y : 0f;
+
+        // FPS
+        fps = Time.deltaTime > 0f ? 1f / Time.deltaTime : 60f;
+
+        // Path progress
+        pathProgress = cameraPath != null ? cameraPath.PathProgress : 0f;
 
         // Cached visibility
         visCount = _cachedVisibleCount;
         coverage = _cachedScreenCoverage;
-
-        // Frame headroom: budget - cpu (matches training formula)
-        headroom = 16.6f - cpu;
-
-        // Current LOD bias
-        lodBias = QualitySettings.lodBias;
-    }
-
-    
-    // Angular velocity
-    
-    private void UpdateAngularVelocity(ref float angVel)
-    {
-        if (_skipAngularFrame)
-        {
-            _lastCamRotation  = targetCamera.transform.rotation;
-            _skipAngularFrame = false;
-            _angularVelocity  = 0f;
-            angVel            = 0f;
-            return;
-        }
-
-        Quaternion delta = targetCamera.transform.rotation * Quaternion.Inverse(_lastCamRotation);
-        delta.ToAngleAxis(out float angle, out _);
-        _angularVelocity = angle / Time.deltaTime;
-        _lastCamRotation = targetCamera.transform.rotation;
-        angVel           = _angularVelocity;
     }
 
     
@@ -257,9 +238,9 @@ public class LODFeatureExtractor : MonoBehaviour
         string   json = File.ReadAllText(path);
         ScalerData data = JsonUtility.FromJson<ScalerData>(json);
 
-        if (data.mean == null || data.mean.Length != 10)
+        if (data.mean == null || data.mean.Length != 12)
         {
-            Debug.LogError("[LODFeatureExtractor] Invalid scaler JSON — expected 10 mean values.");
+            Debug.LogError("[LODFeatureExtractor] Invalid scaler JSON — expected 12 mean values.");
             return;
         }
 
