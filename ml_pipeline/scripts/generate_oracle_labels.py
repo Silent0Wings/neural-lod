@@ -10,7 +10,7 @@ from config import (
     POSITION_BINS, ROTATION_BINS,
     LAMBDA, SOFTMAX_TEMP, HEADROOM_WEIGHT
 )
-
+    
 def run():
     if not TRAINING_MERGED.exists():
         raise FileNotFoundError(

@@ -20,22 +20,22 @@ PLOTS_DIR.mkdir(exist_ok=True)
 # ---- file paths -------------------------------------------------------
 
 # merge stage: input raw Unity training CSVs
-TRAINING_RAW_DIR     = DATA_DIR                          # put training_data_*.csv here
-TRAINING_RAW_PATTERN = str(DATA_DIR / "training_data_*.csv")
+TRAINING_RAW_DIR     = DATA_DIR / "Train_Runs"
+TRAINING_RAW_PATTERN = str(TRAINING_RAW_DIR / "**" / "training_data_*.csv")
 
 # merge stage: output
-TRAINING_MERGED = DATA_DIR / "training_data_merged.csv"
+TRAINING_MERGED = DATA_DIR / "Train_Merged_Unlabeled" / "training_data_merged.csv"
 
 # label stage: input + output
-TRAINING_LABELED = DATA_DIR / "training_data_labeled.csv"
+TRAINING_LABELED = DATA_DIR / "Train_Merged_labeled" / "training_data_labeled.csv"
 
 # eval compare stage: latest eval CSV is auto-detected (most recent by name)
 def get_latest_eval_csv() -> Path:
-    matches = sorted(glob.glob(str(DATA_DIR / "eval_neural_*.csv")))
+    matches = sorted(glob.glob(str(DATA_DIR / "Eval" / "eval_neural_*.csv")))
     if not matches:
         raise FileNotFoundError(
-            f"No eval_neural_*.csv found in {DATA_DIR}\n"
-            "Copy your EvaluationLogger output CSV into ml_pipeline/data/ first."
+            f"No eval_neural_*.csv found in {DATA_DIR / 'Eval'}\n"
+            "Copy your EvaluationLogger output CSV into ml_pipeline/data/Eval/ first."
         )
     return Path(matches[-1])
 

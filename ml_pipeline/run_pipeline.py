@@ -30,7 +30,7 @@ from scripts import compare_eval_vs_train
 from config import (
     TRAINING_MERGED, TRAINING_LABELED,
     EVAL_COMPARE_FIG, DATA_DIR,
-    get_latest_eval_csv
+    get_latest_eval_csv, PIPELINE_ROOT
 )
 
 DIVIDER = "=" * 55
@@ -160,11 +160,11 @@ def main():
     if all_ok and results:
         print(f"\n  All stages passed.")
         if TRAINING_MERGED.exists():
-            print(f"  Merged   -> {TRAINING_MERGED.name}")
+            print(f"  Merged   -> {TRAINING_MERGED.relative_to(PIPELINE_ROOT)}")
         if TRAINING_LABELED.exists():
-            print(f"  Labeled  -> {TRAINING_LABELED.name}")
+            print(f"  Labeled  -> {TRAINING_LABELED.relative_to(PIPELINE_ROOT)}")
         if EVAL_COMPARE_FIG.exists():
-            print(f"  Figure   -> {EVAL_COMPARE_FIG.name}")
+            print(f"  Figure   -> {EVAL_COMPARE_FIG.relative_to(PIPELINE_ROOT)}")
     else:
         print(f"\n  One or more stages failed or were skipped.")
         sys.exit(1)

@@ -10,7 +10,7 @@ from config import (
 )
 
 def run():
-    files = sorted(glob.glob(TRAINING_RAW_PATTERN))
+    files = sorted(glob.glob(TRAINING_RAW_PATTERN, recursive=True))
     files = [f for f in files if "merged" not in f and "labeled" not in f]
 
     if not files:
