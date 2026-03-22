@@ -19,6 +19,9 @@ import sys
 import time
 from pathlib import Path
 
+# Make sure the `scripts` folder is in sys.path so they can find `config.py`
+sys.path.insert(0, str(Path(__file__).resolve().parent / "scripts"))
+
 # import stage modules from the scripts folder
 from scripts import merge_training_data
 from scripts import generate_oracle_labels

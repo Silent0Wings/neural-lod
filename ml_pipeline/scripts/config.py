@@ -6,8 +6,8 @@ All scripts import from here. Edit paths and constants in one place only.
 from pathlib import Path
 import glob
 
-# root of ml_pipeline folder (where this file lives)
-PIPELINE_ROOT = Path(__file__).resolve().parent
+# root of ml_pipeline folder
+PIPELINE_ROOT = Path(__file__).resolve().parent.parent
 
 # data folder that holds all CSVs
 DATA_DIR = PIPELINE_ROOT / "data"
