@@ -19,10 +19,10 @@ import sys
 import time
 from pathlib import Path
 
-# import stage modules directly (same folder)
-import merge_training_data
-import generate_oracle_labels
-import compare_eval_vs_train
+# import stage modules from the scripts folder
+from scripts import merge_training_data
+from scripts import generate_oracle_labels
+from scripts import compare_eval_vs_train
 
 from config import (
     TRAINING_MERGED, TRAINING_LABELED,
