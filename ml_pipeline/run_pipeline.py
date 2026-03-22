@@ -111,10 +111,16 @@ def main():
     results = {}
 
     if args.stage in ["all", "merge"]:
-        results["merge"] = run_stage(
-            "1. Merge Training Data",
-            merge_training_data.run
-        )
+        if TRAINING_MERGED.exists() and args.stage == "all":
+            section("STAGE: 1. Merge Training Data")
+            print(f"  SKIP {TRAINING_MERGED.name} already exists.")
+            print( "  Run --stage merge explicitly to force remerge.")
+            results["merge"] = True
+        else:
+            results["merge"] = run_stage(
+                "1. Merge Training Data",
+                merge_training_data.run
+            )
 
     if args.stage in ["all", "label"]:
         results["label"] = run_stage(

@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+from matplotlib.ticker import MaxNLocator
 from config import (
     TRAINING_LABELED, EVAL_COMPARE_FIG,
     TARGET_FRAME_MS, get_latest_eval_csv
@@ -23,7 +24,11 @@ def run(save_individual=False):
     print(f"Using eval file : {eval_path.name}")
 
     train = pd.read_csv(TRAINING_LABELED)
-    eval_ = pd.read_csv(eval_path)
+    eval_ = pd.read_csv(eval_path, comment='#')
+    eval_ = eval_[~eval_["elapsed_s"].astype(str).str.startswith('#')]
+    eval_["elapsed_s"] = pd.to_numeric(eval_["elapsed_s"], errors="coerce")
+    eval_ = eval_.dropna(subset=["elapsed_s"])
+    print(f"Eval rows after cleaning : {len(eval_)}")
 
     print(f"Train rows : {len(train)}")
     print(f"Eval rows  : {len(eval_)}")
@@ -104,25 +109,27 @@ def run(save_individual=False):
     ax5 = fig.add_subplot(gs[1, 1])
     if "elapsed_s" in eval_.columns:
         es = eval_.sort_values("elapsed_s")
-        # Downsample to ~400 points to prevent unreadable visual plotting
-        step = max(1, len(es) // 400)
-        es_sub = es.iloc[::step]
-        ax5.plot(es_sub["elapsed_s"], es_sub["cpu_ms"].clip(0, 80), color=EC, alpha=0.6, linewidth=0.6)
+        print(f"lod_bias after t=15s: {es[es['elapsed_s'] > 15]['lod_bias'].describe()}")
+        print(f"lod_bias unique values after t=15s: {es[es['elapsed_s'] > 15]['lod_bias'].unique()}")
+        print(f"es elapsed_s range: {es['elapsed_s'].min():.1f} -> {es['elapsed_s'].max():.1f}")
+        print(f"es rows: {len(es)}")
+        ax5.plot(es["elapsed_s"].astype(float), es["cpu_ms"].clip(0, 80), color=EC, alpha=0.6, linewidth=0.6)
         ax5.axhline(TARGET_FRAME_MS, color="red", linestyle="--", linewidth=1.2)
         ax5.set_title("Eval: CPU Frame Time over Run")
         ax5.set_xlabel("Elapsed (s)")
         ax5.set_ylabel("CPU ms")
+        ax5.xaxis.set_major_locator(MaxNLocator(nbins=6))
     else:
         ax5.text(0.5, 0.5, "No elapsed_s column", ha="center", va="center")
         ax5.set_title("Eval: CPU over time (N/A)")
 
     ax6 = fig.add_subplot(gs[1, 2])
     if "elapsed_s" in eval_.columns:
-        # Use the same downsampled subset for bias over time
-        ax6.plot(es_sub["elapsed_s"], es_sub["lod_bias"], color=EC, alpha=0.7, linewidth=0.8)
+        ax6.plot(es["elapsed_s"].astype(float), es["lod_bias"], color=EC, alpha=0.7, linewidth=0.8)
         ax6.set_title("Eval: LOD Bias over Run")
         ax6.set_xlabel("Elapsed (s)")
         ax6.set_ylabel("lod_bias")
+        ax6.xaxis.set_major_locator(MaxNLocator(nbins=6))
     else:
         ax6.plot(eval_["lod_bias"].values, color=EC, alpha=0.7, linewidth=0.6)
         ax6.set_title("Eval: LOD Bias (frame index)")
@@ -145,8 +152,7 @@ def run(save_individual=False):
     ax7.legend(fontsize=8)
 
     ax8 = fig.add_subplot(gs[2, 1])
-    sample = eval_.sample(min(1000, len(eval_)), random_state=42)
-    ax8.scatter(sample["lod_bias"], sample["cpu_ms"].clip(0, 60), alpha=0.3, s=8, color=EC)
+    ax8.scatter(eval_["lod_bias"], eval_["cpu_ms"].clip(0, 60), alpha=0.3, s=8, color=EC)
     ax8.axhline(TARGET_FRAME_MS, color="red", linestyle="--", linewidth=1.2)
     ax8.set_title("Eval: LOD Bias vs CPU ms")
     ax8.set_xlabel("lod_bias")
@@ -172,7 +178,7 @@ def run(save_individual=False):
             extent = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
             out_path = EVAL_COMPARE_FIG.parent / f"{EVAL_COMPARE_FIG.stem}_plot_{i+1}.png"
             fig.savefig(out_path, bbox_inches=extent.expanded(1.2, 1.25), dpi=150)
-        print(f"Saved {len(fig.axes)} separated individual plots to {EVAL_COMPARE_FIG.parent}")
+        print(f"Saved {len(fig.axes)} individual plots to {EVAL_COMPARE_FIG.parent}")
 
 if __name__ == "__main__":
     import sys
