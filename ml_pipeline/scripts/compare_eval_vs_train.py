@@ -12,7 +12,7 @@ from config import (
     TARGET_FRAME_MS, get_latest_eval_csv
 )
 
-def run():
+def run(save_individual=False):
     if not TRAINING_LABELED.exists():
         raise FileNotFoundError(
             f"Labeled training file not found: {TRAINING_LABELED}\n"
@@ -104,7 +104,10 @@ def run():
     ax5 = fig.add_subplot(gs[1, 1])
     if "elapsed_s" in eval_.columns:
         es = eval_.sort_values("elapsed_s")
-        ax5.plot(es["elapsed_s"], es["cpu_ms"].clip(0, 80), color=EC, alpha=0.6, linewidth=0.6)
+        # Downsample to ~400 points to prevent unreadable visual plotting
+        step = max(1, len(es) // 400)
+        es_sub = es.iloc[::step]
+        ax5.plot(es_sub["elapsed_s"], es_sub["cpu_ms"].clip(0, 80), color=EC, alpha=0.6, linewidth=0.6)
         ax5.axhline(TARGET_FRAME_MS, color="red", linestyle="--", linewidth=1.2)
         ax5.set_title("Eval: CPU Frame Time over Run")
         ax5.set_xlabel("Elapsed (s)")
@@ -115,7 +118,8 @@ def run():
 
     ax6 = fig.add_subplot(gs[1, 2])
     if "elapsed_s" in eval_.columns:
-        ax6.plot(es["elapsed_s"], es["lod_bias"], color=EC, alpha=0.7, linewidth=0.8)
+        # Use the same downsampled subset for bias over time
+        ax6.plot(es_sub["elapsed_s"], es_sub["lod_bias"], color=EC, alpha=0.7, linewidth=0.8)
         ax6.set_title("Eval: LOD Bias over Run")
         ax6.set_xlabel("Elapsed (s)")
         ax6.set_ylabel("lod_bias")
@@ -163,5 +167,14 @@ def run():
     plt.savefig(EVAL_COMPARE_FIG, dpi=150, bbox_inches="tight")
     print(f"\nFigure saved -> {EVAL_COMPARE_FIG}")
 
+    if save_individual:
+        for i, ax in enumerate(fig.axes):
+            extent = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+            out_path = EVAL_COMPARE_FIG.parent / f"{EVAL_COMPARE_FIG.stem}_plot_{i+1}.png"
+            fig.savefig(out_path, bbox_inches=extent.expanded(1.2, 1.25), dpi=150)
+        print(f"Saved {len(fig.axes)} separated individual plots to {EVAL_COMPARE_FIG.parent}")
+
 if __name__ == "__main__":
-    run()
+    import sys
+    do_separate = "--separate-plots" in sys.argv
+    run(save_individual=do_separate)

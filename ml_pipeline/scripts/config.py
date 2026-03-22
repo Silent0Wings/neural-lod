@@ -13,6 +13,10 @@ PIPELINE_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PIPELINE_ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
+# plots folder for all generated figures
+PLOTS_DIR = PIPELINE_ROOT / "plots"
+PLOTS_DIR.mkdir(exist_ok=True)
+
 # ---- file paths -------------------------------------------------------
 
 # merge stage: input raw Unity training CSVs
@@ -36,7 +40,7 @@ def get_latest_eval_csv() -> Path:
     return Path(matches[-1])
 
 # eval compare stage: output figure
-EVAL_COMPARE_FIG = DATA_DIR / "compare_eval_vs_train.png"
+EVAL_COMPARE_FIG = PLOTS_DIR / "compare_eval_vs_train.png"
 
 # ---- shared constants -------------------------------------------------
 

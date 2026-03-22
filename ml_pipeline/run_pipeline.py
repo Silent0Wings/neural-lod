@@ -94,6 +94,11 @@ def main():
             "eval_compare Stage 3: compare eval vs training\n"
         )
     )
+    parser.add_argument(
+        "--separate-plots",
+        action="store_true",
+        help="Save each plot in Stage 3 as an individual image"
+    )
     args = parser.parse_args()
 
     print(f"\n{'#'*55}")
@@ -133,7 +138,7 @@ def main():
         else:
             results["eval_compare"] = run_stage(
                 "3. Compare Eval vs Training",
-                compare_eval_vs_train.run,
+                lambda: compare_eval_vs_train.run(save_individual=args.separate_plots),
                 required_inputs=[TRAINING_LABELED]
             )
 
