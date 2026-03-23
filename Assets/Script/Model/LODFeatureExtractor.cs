@@ -247,5 +247,4 @@ public class LODFeatureExtractor : MonoBehaviour
         public float   bias_max;
     }
 }
-}
-}
+
