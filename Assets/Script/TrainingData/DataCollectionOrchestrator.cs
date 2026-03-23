@@ -119,7 +119,7 @@ public class DataCollectionOrchestrator : MonoBehaviour
         logger.enabled = false;
 
         cpa.ResetPath();
-        cpa.IsPaused = true;
+        cpa.IsPaused = false; // DESIGN-01: Allow camera to move during warmup
 
         _waitingForWarmup = true;
         _warmupTimer = 0f;
@@ -141,8 +141,8 @@ public class DataCollectionOrchestrator : MonoBehaviour
             {
                 _waitingForWarmup = false;
                 _runStarted = true;
-                cpa.IsPaused = false;
-                logger.enabled = true;
+                // cpa.IsPaused = false; // DESIGN-01: Camera is already moving
+                logger.enabled = true; 
 
                 Debug.Log($"[Orchestrator] Warmup done — logging started for run {_currentRun + 1}.");
             }
