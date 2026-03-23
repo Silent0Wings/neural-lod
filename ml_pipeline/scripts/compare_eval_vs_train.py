@@ -5,6 +5,7 @@ Auto-detects the latest eval_neural_*.csv in data/.
 
 import pandas as pd
 import numpy as np
+from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.ticker import MaxNLocator
@@ -13,34 +14,48 @@ from config import (
     TARGET_FRAME_MS, get_latest_eval_csv
 )
 
-def run(save_individual=False):
-    if not TRAINING_LABELED.exists():
+def run(save_individual=False, custom_train_path=None, custom_eval_path=None, custom_out_path=None):
+    train_path = Path(custom_train_path) if custom_train_path else TRAINING_LABELED
+    if not train_path.exists():
         raise FileNotFoundError(
-            f"Labeled training file not found: {TRAINING_LABELED}\n"
-            "Run Stage 2 (generate_oracle_labels.py) first."
+            f"Training/Baseline file not found: {train_path}\n"
+            "Run Stage 2 or provide a valid --train path."
         )
 
-    eval_path = get_latest_eval_csv()
-    print(f"Using eval file : {eval_path.name}")
+    eval_path = Path(custom_eval_path) if custom_eval_path else get_latest_eval_csv()
+    if not eval_path.exists():
+         raise FileNotFoundError(f"Eval file not found: {eval_path}")
+         
+    out_fig_path = Path(custom_out_path) if custom_out_path else EVAL_COMPARE_FIG
 
-    train = pd.read_csv(TRAINING_LABELED)
+    print(f"Using baseline/train : {train_path.name}")
+    print(f"Using eval file      : {eval_path.name}")
+
+    train = pd.read_csv(train_path)
     eval_ = pd.read_csv(eval_path, comment='#')
-    eval_ = eval_[~eval_["elapsed_s"].astype(str).str.startswith('#')]
-    eval_["elapsed_s"] = pd.to_numeric(eval_["elapsed_s"], errors="coerce")
-    eval_ = eval_.dropna(subset=["elapsed_s"])
-    print(f"Eval rows after cleaning : {len(eval_)}")
+    if "elapsed_s" in eval_.columns:
+        eval_ = eval_[~eval_["elapsed_s"].astype(str).str.startswith('#')]
+        eval_["elapsed_s"] = pd.to_numeric(eval_["elapsed_s"], errors="coerce")
+        eval_ = eval_.dropna(subset=["elapsed_s"])
+        print(f"Eval rows after cleaning ('elapsed_s' found): {len(eval_)}")
+    else:
+        eval_["elapsed_s"] = np.arange(len(eval_)) / 60.0
+        print(f"Eval rows after cleaning (synthesized 'elapsed_s'): {len(eval_)}")
 
-    print(f"Train rows : {len(train)}")
-    print(f"Eval rows  : {len(eval_)}")
+    print(f"Baseline rows : {len(train)}")
+    print(f"Eval rows     : {len(eval_)}")
 
     train = train.rename(columns={
         "cpu_frame_time_ms": "cpu_ms",
         "gpu_frame_time_ms": "gpu_ms",
-        "lod_bias_current":  "lod_bias",
+        "target_lod_bias":   "lod_bias",
     })
     eval_ = eval_.rename(columns={
         "cpu_frame_ms": "cpu_ms",
         "gpu_frame_ms": "gpu_ms",
+        "cpu_frame_time_ms": "cpu_ms",
+        "gpu_frame_time_ms": "gpu_ms",
+        "lod_bias_current": "lod_bias",
     })
 
     for df in [train, eval_]:
@@ -170,17 +185,28 @@ def run(save_individual=False):
         ax9.text(0.5, 0.5, "path_progress not in both", ha="center", va="center")
         ax9.set_title("Path Coverage (N/A)")
 
-    plt.savefig(EVAL_COMPARE_FIG, dpi=150, bbox_inches="tight")
-    print(f"\nFigure saved -> {EVAL_COMPARE_FIG}")
+    plt.savefig(out_fig_path, dpi=150, bbox_inches="tight")
+    print(f"\nFigure saved -> {out_fig_path}")
 
     if save_individual:
         for i, ax in enumerate(fig.axes):
             extent = ax.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
-            out_path = EVAL_COMPARE_FIG.parent / f"{EVAL_COMPARE_FIG.stem}_plot_{i+1}.png"
+            out_path = out_fig_path.parent / f"{out_fig_path.stem}_plot_{i+1}.png"
             fig.savefig(out_path, bbox_inches=extent.expanded(1.2, 1.25), dpi=150)
-        print(f"Saved {len(fig.axes)} individual plots to {EVAL_COMPARE_FIG.parent}")
+        print(f"Saved {len(fig.axes)} individual plots to {out_fig_path.parent}")
 
 if __name__ == "__main__":
-    import sys
-    do_separate = "--separate-plots" in sys.argv
-    run(save_individual=do_separate)
+    import argparse
+    parser = argparse.ArgumentParser(description="Compare Eval vs Training Data")
+    parser.add_argument("--separate-plots", action="store_true", help="Save individual plots")
+    parser.add_argument("--train", type=str, help="Path to custom training/baseline CSV")
+    parser.add_argument("--eval", type=str, help="Path to custom eval CSV")
+    parser.add_argument("--out", type=str, help="Path to output plot PNG")
+    args = parser.parse_args()
+
+    run(
+        save_individual=args.separate_plots,
+        custom_train_path=args.train,
+        custom_eval_path=args.eval,
+        custom_out_path=args.out
+    )
