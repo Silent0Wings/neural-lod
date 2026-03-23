@@ -23,6 +23,8 @@ public class MetricLogger : MonoBehaviour
 
     private ProfilerRecorder _trisRecorder;
     private ProfilerRecorder _drawCallRecorder;
+    private ProfilerRecorder _batchesRecorder;
+    private ProfilerRecorder _setpassRecorder;
 
     private FrameTiming[] _frameTimings = new FrameTiming[1];
 
@@ -60,12 +62,16 @@ public class MetricLogger : MonoBehaviour
     {
         _trisRecorder     = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Triangles Count");
         _drawCallRecorder = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Draw Calls Count");
+        _batchesRecorder  = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Batches Count");
+        _setpassRecorder  = ProfilerRecorder.StartNew(ProfilerCategory.Render, "SetPass Calls Count");
     }
 
     void OnDisable()
     {
         _trisRecorder.Dispose();
         _drawCallRecorder.Dispose();
+        _batchesRecorder.Dispose();
+        _setpassRecorder.Dispose();
     }
 
     void Start()
@@ -137,6 +143,9 @@ public class MetricLogger : MonoBehaviour
             "rotate_speed," +
             "waypoint_index," +
             "path_progress," +
+            "draw_calls," +
+            "batches_count," +
+            "setpass_calls," +
             "target_lod_bias"
         );
 
@@ -196,7 +205,9 @@ public class MetricLogger : MonoBehaviour
             _cachedScreenCoverage   = cov;
         }
 
-        long drawCalls = _drawCallRecorder.Valid ? _drawCallRecorder.LastValue : 0;
+        long drawCalls    = _drawCallRecorder.Valid ? _drawCallRecorder.LastValue : 0;
+        long batchesCount = _batchesRecorder.Valid ? _batchesRecorder.LastValue : 0;
+        long setpassCalls = _setpassRecorder.Valid ? _setpassRecorder.LastValue : 0;
 
         float lodBias      = QualitySettings.lodBias;
         float previousBias = _lastLodBias;
@@ -231,6 +242,9 @@ public class MetricLogger : MonoBehaviour
             $"{_currentRotateSpeed:F2}," +
             $"{waypointIndex}," +
             $"{pathProgress:F4}," +
+            $"{drawCalls}," +
+            $"{batchesCount}," +
+            $"{setpassCalls}," +
             $"?";
 
         _rowBuffer.Add(row);
