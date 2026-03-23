@@ -34,6 +34,14 @@ public class LODFeatureExtractor : MonoBehaviour
 {
     private const int FEATURE_COUNT = 20;
 
+    private static readonly string[] ExpectedFeatureNames = {
+        "cpu_frame_time_ms", "gpu_frame_time_ms", "triangle_count", "camera_velocity",
+        "camera_angular_velocity", "visible_renderer_count", "draw_call_estimate",
+        "frame_headroom_ms", "screen_coverage", "lod_bias_current", "fps",
+        "previous_bias", "cam_pos_x", "cam_pos_y", "cam_pos_z", "cam_rot_y",
+        "path_progress", "waypoint_index", "move_speed", "rotate_speed"
+    };
+
     // Inspector
     [Header("References")]
     public Camera targetCamera;
@@ -231,6 +239,23 @@ public class LODFeatureExtractor : MonoBehaviour
             return;
         }
 
+        if (data.feature_names == null || data.feature_names.Length != FEATURE_COUNT)
+        {
+            Debug.LogError($"[LODFeatureExtractor] feature_names mismatch! Expected {FEATURE_COUNT} features.");
+            return;
+        }
+
+        for (int i = 0; i < FEATURE_COUNT; i++)
+        {
+            if (data.feature_names[i] != ExpectedFeatureNames[i])
+            {
+                Debug.LogError($"[LODFeatureExtractor] Feature order mismatch at index {i}! " +
+                               $"Expected '{ExpectedFeatureNames[i]}' but found '{data.feature_names[i]}'. " +
+                               "Aborting to avoid garbage inference.");
+                return;
+            }
+        }
+
         _scalerMean  = data.mean;
         _scalerScale = data.scale;
         _biasMin     = data.bias_min;
@@ -246,6 +271,7 @@ public class LODFeatureExtractor : MonoBehaviour
     [System.Serializable]
     private class ScalerData
     {
+        public string[] feature_names;
         public float[] mean;
         public float[] scale;
         public float   bias_min;
