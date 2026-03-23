@@ -53,6 +53,8 @@ public class LODFeatureExtractor : MonoBehaviour
 
     // Public output — read by NeuralLODController
     public float[] NormalizedFeatures { get; private set; } = new float[FEATURE_COUNT];
+    public float   CpuFrameTime       { get; private set; }
+    public float   GpuFrameTime       { get; private set; }
     public bool    IsReady            { get; private set; } = false;
 
     // Scaler constants loaded from JSON
@@ -109,6 +111,8 @@ public class LODFeatureExtractor : MonoBehaviour
         
         float cpu = count > 0 ? (float)_frameTimings[0].cpuFrameTime : 0f;
         float gpu = count > 0 ? (float)_frameTimings[0].gpuFrameTime : 0f;
+        CpuFrameTime = cpu;
+        GpuFrameTime = gpu;
 
         // 2. Compute Angular Velocity
         UpdateAngularVelocity();

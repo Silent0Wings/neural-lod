@@ -84,6 +84,12 @@ public class NeuralLODController : MonoBehaviour
         if (!_extractor.IsReady) return;
         if (Time.frameCount % inferenceInterval != 0) return;
 
+        float cpu = _extractor.CpuFrameTime;
+        float gpu = _extractor.GpuFrameTime;
+
+        if (gpu <= 0f || cpu <= 0f)
+            return; // hold previous bias
+
         float predicted = RunInference(_extractor.NormalizedFeatures);
         _predictedBias  = predicted;
 
