@@ -49,7 +49,7 @@ public class NeuralLODController : MonoBehaviour
     private LODFeatureExtractor _extractor;
 
     private int   _lastSwitchFrame = 0;
-    private const int INPUT_DIM    = 12;
+    private const int INPUT_DIM    = 20;
 
     
     // Lifecycle

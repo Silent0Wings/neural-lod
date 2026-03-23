@@ -5,31 +5,43 @@ using System.IO;
 
 /// <summary>
 /// LODFeatureExtractor
-/// Collects the 12 runtime features used during training and applies
+/// Collects the 20 runtime features used during training and applies
 /// StandardScaler normalization using constants from scaler_constants.json.
 ///
-/// Feature order (must match FEATURE_COLS from training exactly):
-///   0   cam_rot_y
-///   1   screen_coverage
-///   2   visible_renderer_count
-///   3   cam_pos_y
-///   4   triangle_count
-///   5   path_progress
+/// Feature order (must match ALL_FEATURES from training exactly):
+///   0   cpu_frame_time_ms
+///   1   gpu_frame_time_ms
+///   2   triangle_count
+///   3   camera_velocity
+///   4   camera_angular_velocity
+///   5   visible_renderer_count
 ///   6   draw_call_estimate
-///   7   camera_velocity
-///   8   gpu_frame_time_ms
-///   9   cam_pos_x
-///   10  cam_pos_z
-///   11  fps
+///   7   frame_headroom_ms
+///   8   screen_coverage
+///   9   lod_bias_current
+///   10  fps
+///   11  previous_bias
+///   12  cam_pos_x
+///   13  cam_pos_y
+///   14  cam_pos_z
+///   15  cam_rot_y
+///   16  path_progress
+///   17  waypoint_index
+///   18  move_speed
+///   19  rotate_speed
 /// </summary>
 public class LODFeatureExtractor : MonoBehaviour
 {
-    
+    private const int FEATURE_COUNT = 20;
+
     // Inspector
-    
     [Header("References")]
     public Camera targetCamera;
     public CameraPathAnimator cameraPath;
+
+    [Header("Run Parameters (Inference Defaults)")]
+    public float defaultMoveSpeed = 5.0f;
+    public float defaultRotateSpeed = 45.0f;
 
     [Header("Scaler JSON")]
     [Tooltip("Path to scaler_constants.json inside StreamingAssets")]
@@ -39,61 +51,46 @@ public class LODFeatureExtractor : MonoBehaviour
     [Tooltip("Sample visible renderers every N frames (performance)")]
     public int coverageSampleInterval = 4;
 
-    
     // Public output — read by NeuralLODController
-    
-    public float[] NormalizedFeatures { get; private set; } = new float[12];
+    public float[] NormalizedFeatures { get; private set; } = new float[FEATURE_COUNT];
     public bool    IsReady            { get; private set; } = false;
 
-    
     // Scaler constants loaded from JSON
-    
-    private float[] _scalerMean  = new float[12];
-    private float[] _scalerScale = new float[12];
+    private float[] _scalerMean  = new float[FEATURE_COUNT];
+    private float[] _scalerScale = new float[FEATURE_COUNT];
     private float   _biasMin     = 0.25f;
     private float   _biasMax     = 2.0f;
 
-    
-    // Frame timing
-    
-    private FrameTiming[] _frameTimings = new FrameTiming[1];
-
-    
-    // Profiler recorders
-    
+    // Internal state
+    private FrameTiming[]    _frameTimings = new FrameTiming[1];
     private ProfilerRecorder _trisRecorder;
     private ProfilerRecorder _drawCallRecorder;
+    private Renderer[]       _allRenderers;
 
-    
-    
+    private int   _cachedVisibleCount   = 0;
+    private float _cachedScreenCoverage = 0f;
+    private int   _coverageFrameCounter = 0;
 
-    
-    // Cached visibility
-    
-    private Renderer[] _allRenderers;
-    private int        _cachedVisibleCount    = 0;
-    private float      _cachedScreenCoverage  = 0f;
-    private int        _coverageFrameCounter  = 0;
+    private float      _lastLodBias      = 1.0f;
+    private Quaternion _lastCamRotation;
+    private float      _angularVelocity  = 0f;
+    private bool       _skipAngularFrame = true;
 
-    
-    // Lifecycle
-    
     void Awake()
     {
-        if (targetCamera == null)
-            targetCamera = Camera.main;
-
-        if (cameraPath == null)
-            cameraPath = FindFirstObjectByType<CameraPathAnimator>();
+        if (targetCamera == null) targetCamera = Camera.main;
+        if (cameraPath == null)   cameraPath   = FindFirstObjectByType<CameraPathAnimator>();
 
         LoadScalerConstants();
         _allRenderers = FindObjectsByType<Renderer>(FindObjectsSortMode.None);
+        _lastLodBias = QualitySettings.lodBias;
     }
 
     void OnEnable()
     {
         _trisRecorder     = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Triangles Count");
         _drawCallRecorder = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Draw Calls Count");
+        _skipAngularFrame = true;
     }
 
     void OnDisable()
@@ -102,132 +99,118 @@ public class LODFeatureExtractor : MonoBehaviour
         _drawCallRecorder.Dispose();
     }
 
-    void Start()
-    {
-    }
-
     void Update()
     {
-        CollectRawFeatures(out float camRotY, out float coverage, out float visCount,
-                           out float camPosY, out float tris, out float pathProgress,
-                           out float drawCalls, out float vel, out float gpu,
-                           out float camPosX, out float camPosZ, out float fps);
+        if (targetCamera == null) return;
 
-        UpdateCoverageCache(ref visCount, ref coverage);
+        // 1. Capture Timings
+        FrameTimingManager.CaptureFrameTimings();
+        uint count = FrameTimingManager.GetLatestTimings(1, _frameTimings);
+        
+        float cpu = count > 0 ? (float)_frameTimings[0].cpuFrameTime : 0f;
+        float gpu = count > 0 ? (float)_frameTimings[0].gpuFrameTime : 0f;
 
-        float[] raw = new float[12]
+        // 2. Compute Angular Velocity
+        UpdateAngularVelocity();
+
+        // 3. Update Visibility Cache
+        UpdateCoverageCache();
+
+        // 4. Collect Stats
+        float  vel      = targetCamera.velocity.magnitude;
+        float  fps      = Time.deltaTime > 0f ? 1f / Time.deltaTime : 60f;
+        long   tris     = _trisRecorder.Valid ? _trisRecorder.LastValue : 0;
+        long   draws    = _drawCallRecorder.Valid ? _drawCallRecorder.LastValue : 0;
+        Vector3 pos     = targetCamera.transform.position;
+        float   rotY    = targetCamera.transform.eulerAngles.y;
+        float   curBias = QualitySettings.lodBias;
+        float   pathP   = cameraPath != null ? cameraPath.PathProgress : 0f;
+        int     wayIdx  = cameraPath != null ? cameraPath.CurrentIndex : -1;
+
+        // 5. Construct Raw Feature Array (MUST MATCH 20-FEATURE ORDER)
+        float[] raw = new float[FEATURE_COUNT]
         {
-            camRotY,
-            coverage,
-            visCount,
-            camPosY,
-            tris,
-            pathProgress,
-            drawCalls,
-            vel,
-            gpu,
-            camPosX,
-            camPosZ,
-            fps
+            cpu,                      // 0
+            gpu,                      // 1
+            (float)tris,              // 2
+            vel,                      // 3
+            _angularVelocity,         // 4
+            (float)_cachedVisibleCount,// 5
+            (float)draws,             // 6
+            16.6f - gpu,              // 7 (frame_headroom_ms)
+            _cachedScreenCoverage,    // 8
+            curBias,                  // 9 (lod_bias_current)
+            fps,                      // 10
+            _lastLodBias,             // 11 (previous_bias)
+            pos.x,                    // 12
+            pos.y,                    // 13
+            pos.z,                    // 14
+            rotY,                     // 15
+            pathP,                    // 16
+            (float)wayIdx,            // 17
+            defaultMoveSpeed,         // 18
+            defaultRotateSpeed        // 19
         };
 
-        // Apply StandardScaler: (x - mean) / scale
-        for (int i = 0; i < 12; i++)
+        // 6. Normalize
+        for (int i = 0; i < FEATURE_COUNT; i++)
+        {
             NormalizedFeatures[i] = (raw[i] - _scalerMean[i]) / _scalerScale[i];
+        }
 
+        // 7. Update State
+        _lastLodBias = curBias;
         IsReady = true;
     }
 
-    
-    // Feature collection
-    
-    private void CollectRawFeatures(
-        out float camRotY, out float coverage, out float visCount,
-        out float camPosY, out float tris, out float pathProgress,
-        out float drawCalls, out float vel, out float gpu,
-        out float camPosX, out float camPosZ, out float fps)
+    private void UpdateAngularVelocity()
     {
-        // Frame timing
-        FrameTimingManager.CaptureFrameTimings();
-        uint count = FrameTimingManager.GetLatestTimings(1, _frameTimings);
-
-        gpu = count > 0 ? (float)_frameTimings[0].gpuFrameTime : 0f;
-
-        // Triangle and draw call counts
-        tris      = _trisRecorder.Valid     ? (float)_trisRecorder.LastValue     : 0f;
-        drawCalls = _drawCallRecorder.Valid ? (float)_drawCallRecorder.LastValue : 0f;
-
-        // Camera linear velocity
-        vel = targetCamera != null ? targetCamera.velocity.magnitude : 0f;
-
-        // Position and rotation
-        camPosX = targetCamera != null ? targetCamera.transform.position.x : 0f;
-        camPosY = targetCamera != null ? targetCamera.transform.position.y : 0f;
-        camPosZ = targetCamera != null ? targetCamera.transform.position.z : 0f;
-        camRotY = targetCamera != null ? targetCamera.transform.eulerAngles.y : 0f;
-
-        // FPS
-        fps = Time.deltaTime > 0f ? 1f / Time.deltaTime : 60f;
-
-        // Path progress
-        pathProgress = cameraPath != null ? cameraPath.PathProgress : 0f;
-
-        // Cached visibility
-        visCount = _cachedVisibleCount;
-        coverage = _cachedScreenCoverage;
-    }
-
-    
-    // Visibility and screen coverage cache
-    
-    private void UpdateCoverageCache(ref float visCount, ref float coverage)
-    {
-        _coverageFrameCounter++;
-        if (_coverageFrameCounter < coverageSampleInterval)
+        if (_skipAngularFrame)
         {
-            visCount = _cachedVisibleCount;
-            coverage = _cachedScreenCoverage;
+            _lastCamRotation = targetCamera.transform.rotation;
+            _skipAngularFrame = false;
+            _angularVelocity = 0f;
             return;
         }
+        Quaternion delta = targetCamera.transform.rotation * Quaternion.Inverse(_lastCamRotation);
+        delta.ToAngleAxis(out float angle, out Vector3 _);
+        _angularVelocity = angle / Time.deltaTime;
+        _lastCamRotation = targetCamera.transform.rotation;
+    }
 
+    private void UpdateCoverageCache()
+    {
+        _coverageFrameCounter++;
+        if (_coverageFrameCounter < coverageSampleInterval) return;
         _coverageFrameCounter = 0;
 
         Plane[] frustum = GeometryUtility.CalculateFrustumPlanes(targetCamera);
-        float   screenW = Screen.width;
-        float   screenH = Screen.height;
-        int     count   = 0;
-        float   total   = 0f;
+        float sw = Screen.width;
+        float sh = Screen.height;
+        int count = 0;
+        float total = 0f;
 
         foreach (Renderer r in _allRenderers)
         {
             if (r == null || !r.enabled) continue;
             if (!GeometryUtility.TestPlanesAABB(frustum, r.bounds)) continue;
-
             Vector3 sp = targetCamera.WorldToScreenPoint(r.bounds.center);
             if (sp.z < 0f) continue;
 
             count++;
             Vector3 mn = targetCamera.WorldToScreenPoint(r.bounds.min);
             Vector3 mx = targetCamera.WorldToScreenPoint(r.bounds.max);
-            float   w  = Mathf.Abs(mx.x - mn.x) / screenW;
-            float   h  = Mathf.Abs(mx.y - mn.y) / screenH;
+            float w = Mathf.Abs(mx.x - mn.x) / sw;
+            float h = Mathf.Abs(mx.y - mn.y) / sh;
             total += Mathf.Clamp01(w) * Mathf.Clamp01(h);
         }
-
-        _cachedVisibleCount   = count;
+        _cachedVisibleCount = count;
         _cachedScreenCoverage = count > 0 ? total / count : 0f;
-
-        visCount = _cachedVisibleCount;
-        coverage = _cachedScreenCoverage;
     }
 
-    
-    // Scaler JSON loading
-    
     private void LoadScalerConstants()
     {
         string path = Application.streamingAssetsPath + "/" + scalerJsonFileName;
-
 
         if (!File.Exists(path))
         {
@@ -235,12 +218,12 @@ public class LODFeatureExtractor : MonoBehaviour
             return;
         }
 
-        string   json = File.ReadAllText(path);
+        string json = File.ReadAllText(path);
         ScalerData data = JsonUtility.FromJson<ScalerData>(json);
 
-        if (data.mean == null || data.mean.Length != 12)
+        if (data.mean == null || data.mean.Length != FEATURE_COUNT)
         {
-            Debug.LogError("[LODFeatureExtractor] Invalid scaler JSON — expected 12 mean values.");
+            Debug.LogError($"[LODFeatureExtractor] Scaler data mismatch! Expected {FEATURE_COUNT} but found {(data.mean != null ? data.mean.Length : 0)}");
             return;
         }
 
@@ -252,15 +235,9 @@ public class LODFeatureExtractor : MonoBehaviour
         Debug.Log("[LODFeatureExtractor] Scaler constants loaded OK.");
     }
 
-    
-    // Helper — expose bias range for denormalization in controller
-    
     public float BiasMin => _biasMin;
     public float BiasMax => _biasMax;
 
-    
-    // JSON schema
-    
     [System.Serializable]
     private class ScalerData
     {
@@ -269,4 +246,6 @@ public class LODFeatureExtractor : MonoBehaviour
         public float   bias_min;
         public float   bias_max;
     }
+}
+}
 }
