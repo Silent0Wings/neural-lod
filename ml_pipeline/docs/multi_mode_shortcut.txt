@@ -1,0 +1,5 @@
+# Basic command
+command = "python c:\Users\Gica\neural-lod\ml_pipeline\multi_mode\run_labeling.py"
+
+# Command using environment variable for input directory (PowerShell)
+command_env = "$env:MULTI_MODE_INPUT = 'c:\Users\Gica\neural-lod\ml_pipeline\data\Train_Runs\Multi_Mode_Run'; & python c:\Users\Gica\neural-lod\ml_pipeline\multi_mode\run_labeling.py --input-dir $env:MULTI_MODE_INPUT"
