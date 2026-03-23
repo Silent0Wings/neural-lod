@@ -63,6 +63,8 @@ public class EvaluationLogger : MonoBehaviour
     private float      _cachedScreenCoverage  = 0f;
     private int        _coverageFrameCounter  = 0;
 
+    private Vector3 _lastCamPos;
+
     // Schema definition (FAULT-09)
     private static readonly string[] CsvHeaders = {
         "cpu_frame_time_ms", "gpu_frame_time_ms", "triangle_count", "camera_velocity",
@@ -119,6 +121,7 @@ public class EvaluationLogger : MonoBehaviour
         _cpuSamples = new List<float>(targetRowCount);
         _gpuSamples = new List<float>(targetRowCount);
 
+        _lastCamPos = targetCamera.transform.position;
         OpenFile();
         _lastCamRotation = targetCamera.transform.rotation;
         _lastLodBias      = QualitySettings.lodBias;
@@ -147,8 +150,11 @@ public class EvaluationLogger : MonoBehaviour
         long  batches    = _batchesRecorder.Valid  ? _batchesRecorder.LastValue  : 0;
         long  setpass    = _setpassRecorder.Valid  ? _setpassRecorder.LastValue  : 0;
         
-        float velocity   = targetCamera != null ? targetCamera.velocity.magnitude : 0f;
         Vector3 camPos   = targetCamera.transform.position;
+        float dist       = Vector3.Distance(camPos, _lastCamPos);
+        float velocity   = Time.deltaTime > 0f ? dist / Time.deltaTime : 0f;
+        _lastCamPos      = camPos;
+        
         float camRotY    = targetCamera.transform.eulerAngles.y;
         
         UpdateAngularVelocity();
