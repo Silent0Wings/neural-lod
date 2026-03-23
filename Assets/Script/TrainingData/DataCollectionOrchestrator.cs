@@ -46,13 +46,28 @@ public class DataCollectionOrchestrator : MonoBehaviour
         if (lodController == null) lodController = FindFirstObjectByType<LODBiasController>();
         if (terminator == null) terminator = FindFirstObjectByType<RunTerminator>();
 
-        if (terminator != null)
-            terminator.controlledByOrchestrator = true;
+        if (!ValidateReferences()) return;
 
-        if (cpa != null)
-            cpa.loop = true;
+        terminator.controlledByOrchestrator = true;
+        cpa.loop = true;
 
         BuildRunList();
+    }
+
+    private bool ValidateReferences()
+    {
+        bool ok = true;
+        if (cpa == null) { Debug.LogError("[Orchestrator] Missing CameraPathAnimator (FAULT-20/24)."); ok = false; }
+        if (logger == null) { Debug.LogError("[Orchestrator] Missing MetricLogger (FAULT-20/24)."); ok = false; }
+        if (lodController == null) { Debug.LogError("[Orchestrator] Missing LODBiasController (FAULT-20/24)."); ok = false; }
+        if (terminator == null) { Debug.LogError("[Orchestrator] Missing RunTerminator (FAULT-20/24)."); ok = false; }
+
+        if (!ok)
+        {
+            Debug.LogError("[Orchestrator] Hard-fail: Disabling orchestrator due to missing dependencies.");
+            enabled = false;
+        }
+        return ok;
     }
 
     void Start()
@@ -83,6 +98,13 @@ public class DataCollectionOrchestrator : MonoBehaviour
 
     private void StartRun(int index)
     {
+        if (cpa == null || logger == null || lodController == null)
+        {
+            Debug.LogError("[Orchestrator] Cannot start run; required references are missing (FAULT-24).");
+            enabled = false;
+            return;
+        }
+
         var (bias, speed, rot) = _runs[index];
 
         _currentBias = bias;
