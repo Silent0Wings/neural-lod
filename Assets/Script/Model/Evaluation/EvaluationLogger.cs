@@ -43,6 +43,8 @@ public class EvaluationLogger : MonoBehaviour
     private FrameTiming[]    _frameTimings = new FrameTiming[1];
     private ProfilerRecorder _trisRecorder;
     private ProfilerRecorder _drawCallRecorder;
+    private ProfilerRecorder _batchesRecorder;
+    private ProfilerRecorder _setpassRecorder;
 
     private StreamWriter  _writer;
     private List<string>  _rowBuffer;
@@ -51,6 +53,15 @@ public class EvaluationLogger : MonoBehaviour
     private float _lastLodBias       = -1f;
     private int   _lodSwitchCount    = 0;
     private float _runStartTime      = 0f;
+
+    private Quaternion _lastCamRotation;
+    private float      _angularVelocity = 0f;
+    private bool       _skipAngularFrame = true;
+
+    private Renderer[] _allRenderers;
+    private int        _cachedVisibleCount    = 0;
+    private float      _cachedScreenCoverage  = 0f;
+    private int        _coverageFrameCounter  = 0;
 
     // Per-run accumulators for summary stats
     private List<float> _cpuSamples = new List<float>();
@@ -66,25 +77,32 @@ public class EvaluationLogger : MonoBehaviour
 
         if (cameraPath == null)
             cameraPath = FindFirstObjectByType<CameraPathAnimator>();
+        
+        _allRenderers = FindObjectsByType<Renderer>(FindObjectsSortMode.None);
     }
 
     void OnEnable()
     {
         _trisRecorder     = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Triangles Count");
         _drawCallRecorder = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Draw Calls Count");
+        _batchesRecorder  = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Batches Count");
+        _setpassRecorder  = ProfilerRecorder.StartNew(ProfilerCategory.Render, "SetPass Calls Count");
     }
 
     void OnDisable()
     {
         _trisRecorder.Dispose();
         _drawCallRecorder.Dispose();
+        _batchesRecorder.Dispose();
+        _setpassRecorder.Dispose();
     }
 
     void Start()
     {
         OpenFile();
-        _lastLodBias  = QualitySettings.lodBias;
-        _runStartTime = Time.time;
+        _lastCamRotation = targetCamera.transform.rotation;
+        _lastLodBias      = QualitySettings.lodBias;
+        _runStartTime     = Time.time;
         Debug.Log($"[EvaluationLogger] Started run '{runLabel}'. Logging to: {_filePath}");
     }
 
@@ -100,14 +118,26 @@ public class EvaluationLogger : MonoBehaviour
         float gpu = (float)_frameTimings[0].gpuFrameTime;
         if (cpu <= 0f && gpu <= 0f) return;
 
+        // Sync with MetricLogger features
         float lodBias    = QualitySettings.lodBias;
+        float previousBias = _lastLodBias;
         float fps        = 1f / Time.deltaTime;
         long  tris       = _trisRecorder.Valid     ? _trisRecorder.LastValue     : 0;
         long  drawCalls  = _drawCallRecorder.Valid ? _drawCallRecorder.LastValue : 0;
-        float velocity   = targetCamera.velocity.magnitude;
+        long  batches    = _batchesRecorder.Valid  ? _batchesRecorder.LastValue  : 0;
+        long  setpass    = _setpassRecorder.Valid  ? _setpassRecorder.LastValue  : 0;
+        
+        float velocity   = targetCamera != null ? targetCamera.velocity.magnitude : 0f;
+        Vector3 camPos   = targetCamera.transform.position;
+        float camRotY    = targetCamera.transform.eulerAngles.y;
+        
+        UpdateAngularVelocity();
+        UpdateCoverageCache();
+
         int   waypoint   = cameraPath != null ? cameraPath.CurrentIndex : -1;
         float progress   = cameraPath != null ? cameraPath.PathProgress  : -1f;
         float elapsed    = Time.time - _runStartTime;
+        float headroom   = 16.6f - gpu;
 
         // Track LOD switches
         bool switched = !Mathf.Approximately(lodBias, _lastLodBias);
@@ -119,17 +149,29 @@ public class EvaluationLogger : MonoBehaviour
         _gpuSamples.Add(gpu);
 
         string row =
-            $"{elapsed:F4}," +
             $"{cpu:F4}," +
             $"{gpu:F4}," +
-            $"{fps:F2}," +
-            $"{lodBias:F4}," +
-            $"{(switched ? 1 : 0)}," +
             $"{tris}," +
-            $"{drawCalls}," +
             $"{velocity:F4}," +
+            $"{_cachedVisibleCount}," +
+            $"{lodBias:F2}," +
+            $"{fps:F2}," +
+            $"{_angularVelocity:F4}," +
+            $"{drawCalls}," +
+            $"{previousBias:F2}," +
+            $"{headroom:F4}," +
+            $"{camPos.x:F2}," +
+            $"{camPos.y:F2}," +
+            $"{camPos.z:F2}," +
+            $"{camRotY:F2}," +
+            $"{_cachedScreenCoverage:F4}," +
+            $"0.0,0.0," + // move_speed, rotate_speed (not relevant for eval, keeping for schema parity)
             $"{waypoint}," +
-            $"{progress:F4}";
+            $"{progress:F4}," +
+            $"{drawCalls}," +
+            $"{batches}," +
+            $"{setpass}," +
+            $"{lodBias:F2}"; // target_lod_bias (same as lod_bias in eval)
 
         _rowBuffer.Add(row);
 
@@ -142,6 +184,53 @@ public class EvaluationLogger : MonoBehaviour
         {
             FinishRun();
         }
+    }
+
+    private void UpdateAngularVelocity()
+    {
+        if (_skipAngularFrame)
+        {
+            _lastCamRotation = targetCamera.transform.rotation;
+            _skipAngularFrame = false;
+            _angularVelocity = 0f;
+            return;
+        }
+        Quaternion deltaRot = targetCamera.transform.rotation * Quaternion.Inverse(_lastCamRotation);
+        deltaRot.ToAngleAxis(out float angle, out Vector3 _);
+        _angularVelocity = angle / Time.deltaTime;
+        _lastCamRotation = targetCamera.transform.rotation;
+    }
+
+    private void UpdateCoverageCache()
+    {
+        _coverageFrameCounter++;
+        if (_coverageFrameCounter < 4) return; // hardcoded interval from MetricLogger
+        _coverageFrameCounter = 0;
+
+        Plane[] frustum = GeometryUtility.CalculateFrustumPlanes(targetCamera);
+        float screenW = Screen.width;
+        float screenH = Screen.height;
+        int count = 0;
+        float total = 0f;
+
+        foreach (Renderer r in _allRenderers)
+        {
+            if (r == null || !r.enabled) continue;
+            if (!GeometryUtility.TestPlanesAABB(frustum, r.bounds)) continue;
+
+            Vector3 sp = targetCamera.WorldToScreenPoint(r.bounds.center);
+            if (sp.z < 0f) continue;
+
+            count++;
+            Vector3 mn = targetCamera.WorldToScreenPoint(r.bounds.min);
+            Vector3 mx = targetCamera.WorldToScreenPoint(r.bounds.max);
+            float w = Mathf.Abs(mx.x - mn.x) / screenW;
+            float h = Mathf.Abs(mx.y - mn.y) / screenH;
+            total += Mathf.Clamp01(w) * Mathf.Clamp01(h);
+        }
+
+        _cachedVisibleCount = count;
+        _cachedScreenCoverage = count > 0 ? total / count : 0f;
     }
 
     void OnDestroy()
@@ -162,17 +251,30 @@ public class EvaluationLogger : MonoBehaviour
         _rowBuffer = new List<string>(bufferFlushInterval + 16);
 
         _writer.WriteLine(
-            "elapsed_s,"        +
-            "cpu_frame_ms,"     +
-            "gpu_frame_ms,"     +
-            "fps,"              +
-            "lod_bias,"         +
-            "bias_switched,"    +
-            "triangle_count,"   +
-            "draw_calls,"       +
-            "camera_velocity,"  +
-            "waypoint_index,"   +
-            "path_progress"
+            "cpu_frame_time_ms," +
+            "gpu_frame_time_ms," +
+            "triangle_count," +
+            "camera_velocity," +
+            "visible_renderer_count," +
+            "lod_bias_current," +
+            "fps," +
+            "camera_angular_velocity," +
+            "draw_call_estimate," +
+            "previous_bias," +
+            "frame_headroom_ms," +
+            "cam_pos_x," +
+            "cam_pos_y," +
+            "cam_pos_z," +
+            "cam_rot_y," +
+            "screen_coverage," +
+            "move_speed," +
+            "rotate_speed," +
+            "waypoint_index," +
+            "path_progress," +
+            "draw_calls," +
+            "batches_count," +
+            "setpass_calls," +
+            "target_lod_bias"
         );
     }
 
