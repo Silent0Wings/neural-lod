@@ -28,6 +28,13 @@ public class EvaluationLogger : MonoBehaviour
     [Tooltip("CSV flush interval in rows")]
     public int bufferFlushInterval = 120;
 
+    [Header("Experiment Provenance (DESIGN-03)")]
+    public string modelIdentifier = "v4_latest";
+    public string featureSchemaVersion = "v4";
+    public string trainingDatasetId = "ds_01";
+    public string cameraPathPreset = "main_loop";
+    public bool   isNeuralMode = true;
+
     [Header("References")]
     public Camera targetCamera;
     public CameraPathAnimator cameraPath;
@@ -275,6 +282,21 @@ public class EvaluationLogger : MonoBehaviour
 
         _writer    = new StreamWriter(_filePath, append: false);
         _rowBuffer = new List<string>(bufferFlushInterval + 16);
+
+        // Write Metadata block (DESIGN-03)
+        _writer.WriteLine("# METADATA");
+        _writer.WriteLine($"# timestamp:       {System.DateTime.Now:O}");
+        _writer.WriteLine($"# unity_version:   {Application.unityVersion}");
+        _writer.WriteLine($"# scene_name:      {UnityEngine.SceneManagement.SceneManager.GetActiveScene().name}");
+        _writer.WriteLine($"# run_label:       {runLabel}");
+        _writer.WriteLine($"# target_rows:     {targetRowCount}");
+        _writer.WriteLine($"# control_mode:    {(isNeuralMode ? "Neural" : "Fixed_Baseline")}");
+        _writer.WriteLine($"# model_id:        {modelIdentifier}");
+        _writer.WriteLine($"# schema_version:  {featureSchemaVersion}");
+        _writer.WriteLine($"# dataset_id:      {trainingDatasetId}");
+        _writer.WriteLine($"# path_preset:     {cameraPathPreset}");
+        _writer.WriteLine("#--------------------------------------------------");
+        _writer.WriteLine("");
 
         _writer.WriteLine(string.Join(",", CsvHeaders));
     }
