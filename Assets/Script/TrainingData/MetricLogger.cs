@@ -213,7 +213,7 @@ public class MetricLogger : MonoBehaviour
         float previousBias = _lastLodBias;
         _lastLodBias       = lodBias;
 
-        float frameHeadroom = 16.6f - gpu;
+        float frameHeadroom = 16.6f - Mathf.Max(cpu, gpu);
 
         int   waypointIndex = cameraPath != null ? cameraPath.CurrentIndex  : -1;
         float pathProgress  = cameraPath != null ? cameraPath.PathProgress  : -1f;

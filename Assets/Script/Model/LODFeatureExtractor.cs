@@ -141,7 +141,7 @@ public class LODFeatureExtractor : MonoBehaviour
             _angularVelocity,         // 4
             (float)_cachedVisibleCount,// 5
             (float)draws,             // 6
-            16.6f - gpu,              // 7 (frame_headroom_ms)
+            16.6f - Mathf.Max(cpu, gpu), // 7 (frame_headroom_ms)
             _cachedScreenCoverage,    // 8
             curBias,                  // 9 (lod_bias_current)
             fps,                      // 10
