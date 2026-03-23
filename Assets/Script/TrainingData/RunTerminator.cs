@@ -70,8 +70,13 @@ public class RunTerminator : MonoBehaviour
         }
     }
 
+    private bool _isTerminating = false;
+
     public void Terminate()
     {
+        if (_isTerminating) return;
+        _isTerminating = true;
+
 #if UNITY_EDITOR
         EditorApplication.isPlaying = false;
 #else

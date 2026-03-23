@@ -139,27 +139,20 @@ public class DataCollectionOrchestrator : MonoBehaviour
         if (_totalRuns > 0) progression = (float)_currentRun / _totalRuns;
         if (progressionSlider != null)
             progressionSlider.value = progression;
+
         if (_currentRun >= _totalRuns)
         {
             _allDone = true;
-            Debug.Log($"[Orchestrator] All {_totalRuns} runs complete. Terminating.");
-            Terminate();
+            Debug.Log($"[Orchestrator] All {_totalRuns} runs complete. Requesting termination.");
+
+            if (terminator != null)
+                terminator.Terminate();
+            else
+                Debug.LogError("[Orchestrator] RunTerminator reference missing.");
         }
         else
         {
             StartRun(_currentRun);
         }
-    }
-
-    private void Terminate()
-    {
-        if (progressionSlider != null)
-            progressionSlider.value = 1;
-
-#if UNITY_EDITOR
-        EditorApplication.isPlaying = false;
-#else
-        Application.Quit();
-#endif
     }
 }
