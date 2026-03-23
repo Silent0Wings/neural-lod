@@ -103,6 +103,7 @@ public class LODFeatureExtractor : MonoBehaviour
 
     void Update()
     {
+        if (!IsReady) return;
         if (targetCamera == null) return;
 
         // 1. Capture Timings
@@ -164,7 +165,6 @@ public class LODFeatureExtractor : MonoBehaviour
 
         // 7. Update State
         _lastLodBias = curBias;
-        IsReady = true;
     }
 
     private void UpdateAngularVelocity()
@@ -236,7 +236,8 @@ public class LODFeatureExtractor : MonoBehaviour
         _biasMin     = data.bias_min;
         _biasMax     = data.bias_max;
 
-        Debug.Log("[LODFeatureExtractor] Scaler constants loaded OK.");
+        IsReady = true;
+        Debug.Log("[LODFeatureExtractor] Scaler constants loaded OK. Extractor is READY.");
     }
 
     public float BiasMin => _biasMin;
