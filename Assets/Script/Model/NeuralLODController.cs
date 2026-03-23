@@ -51,6 +51,14 @@ public class NeuralLODController : MonoBehaviour
     private int   _lastSwitchFrame = 0;
     private const int INPUT_DIM    = 20;
 
+    private int _underBudgetFrames = 0;
+    private int _overBudgetFrames  = 0;
+
+    // tuning
+    private const int RecoveryFramesRequired  = 60;  // frames under budget before stepping up
+    private const int OverBudgetFramesRequired = 10;  // frames over budget before stepping down
+    private const float BiasStep = 0.25f;
+
     
     // Lifecycle
     
@@ -89,6 +97,35 @@ public class NeuralLODController : MonoBehaviour
 
         if (gpu <= 0f || cpu <= 0f)
             return; // hold previous bias
+
+        float cpuMs = cpu; // using cpu time 
+        float budget = 16.6f;
+
+        if (cpuMs < budget)
+        {
+            _underBudgetFrames++;
+            _overBudgetFrames = 0;
+
+            // recovery: force bias up after sustained under-budget frames
+            if (_underBudgetFrames >= RecoveryFramesRequired)
+            {
+                _underBudgetFrames = 0;
+                float recovered = Mathf.Min(QualitySettings.lodBias + BiasStep, _extractor.BiasMax);
+                QualitySettings.lodBias = recovered;
+                _currentBias            = recovered;
+                _lastSwitchFrame        = Time.frameCount;
+                return; // skip model inference this frame
+            }
+        }
+        else
+        {
+            _overBudgetFrames++;
+            _underBudgetFrames = 0;
+
+            // only allow model to drop bias after sustained over-budget frames
+            if (_overBudgetFrames < OverBudgetFramesRequired)
+                return; // hold current bias, skip inference
+        }
 
         float predicted = RunInference(_extractor.NormalizedFeatures);
         _predictedBias  = predicted;
