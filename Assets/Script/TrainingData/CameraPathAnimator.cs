@@ -65,14 +65,19 @@ public class CameraPathAnimator : MonoBehaviour
         get
         {
             if (_path.Count == 0) return 0f;
+
             Node target = _path.GetNode(_currentIndex);
             int prevIndex = (_currentIndex - 1 + _path.Count) % _path.Count;
             Node prev = _path.GetNode(prevIndex);
+
             float segmentLength = Vector3.Distance(prev.position, target.position);
             if (segmentLength < 0.001f) return _currentIndex;
-            float distToTarget = Vector3.Distance(transform.position, target.position);
-            float fraction = 1f - Mathf.Clamp01(distToTarget / segmentLength);
-            return _currentIndex + fraction;
+
+            // progress along segment from prev toward target
+            float distFromPrev = Vector3.Distance(transform.position, prev.position);
+            float fraction = Mathf.Clamp01(distFromPrev / segmentLength);
+
+            return (_currentIndex - 1 + _path.Count) % _path.Count + fraction;
         }
     }
 
