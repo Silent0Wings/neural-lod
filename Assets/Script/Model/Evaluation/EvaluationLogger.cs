@@ -74,8 +74,8 @@ public class EvaluationLogger : MonoBehaviour
     };
 
     // Per-run accumulators for summary stats
-    private List<float> _cpuSamples = new List<float>();
-    private List<float> _gpuSamples = new List<float>();
+    private List<float> _cpuSamples;
+    private List<float> _gpuSamples;
 
     // ------------------------------------------------------------------
     // Lifecycle
@@ -109,6 +109,16 @@ public class EvaluationLogger : MonoBehaviour
 
     void Start()
     {
+        if (targetRowCount <= 0)
+        {
+            Debug.LogError("[EvaluationLogger] Unlimited mode (targetRowCount=0) not supported to prevent memory exhaustion (FAULT-10).");
+            enabled = false;
+            return;
+        }
+
+        _cpuSamples = new List<float>(targetRowCount);
+        _gpuSamples = new List<float>(targetRowCount);
+
         OpenFile();
         _lastCamRotation = targetCamera.transform.rotation;
         _lastLodBias      = QualitySettings.lodBias;
@@ -331,12 +341,15 @@ public class EvaluationLogger : MonoBehaviour
     private float ComputePercentile(List<float> samples, float percentile)
     {
         if (samples.Count == 0) return 0f;
-        List<float> sorted = new List<float>(samples);
-        sorted.Sort();
-        float index = (percentile / 100f) * (sorted.Count - 1);
+        
+        // FAULT-17: Sort in-place to prevent copy allocation spikes.
+        // C# List.Sort() is highly optimized for already-sorted lists on subsequent calls.
+        samples.Sort();
+        
+        float index = (percentile / 100f) * (samples.Count - 1);
         int   lower = (int)index;
-        int   upper = Mathf.Min(lower + 1, sorted.Count - 1);
+        int   upper = Mathf.Min(lower + 1, samples.Count - 1);
         float frac  = index - lower;
-        return sorted[lower] + frac * (sorted[upper] - sorted[lower]);
+        return samples[lower] + frac * (samples[upper] - samples[lower]);
     }
 }
