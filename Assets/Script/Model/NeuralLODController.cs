@@ -163,8 +163,10 @@ public class NeuralLODController : MonoBehaviour
 
     private void ApplyWithStabilityControls(float predicted)
     {
-        float current = _currentBias;
-        float delta   = predicted - current;
+        float current = QualitySettings.lodBias;
+        _currentBias = current; // Sync status display
+
+        float delta = predicted - current;
 
         // Hysteresis — ignore small changes
         if (delta > 0f && delta < hysteresisUp)   return;
