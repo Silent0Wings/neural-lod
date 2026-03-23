@@ -63,6 +63,16 @@ public class EvaluationLogger : MonoBehaviour
     private float      _cachedScreenCoverage  = 0f;
     private int        _coverageFrameCounter  = 0;
 
+    // Schema definition (FAULT-09)
+    private static readonly string[] CsvHeaders = {
+        "cpu_frame_time_ms", "gpu_frame_time_ms", "triangle_count", "camera_velocity",
+        "visible_renderer_count", "lod_bias_current", "fps", "camera_angular_velocity",
+        "draw_call_estimate", "previous_bias", "frame_headroom_ms", "cam_pos_x",
+        "cam_pos_y", "cam_pos_z", "cam_rot_y", "screen_coverage", "move_speed",
+        "rotate_speed", "waypoint_index", "path_progress", "draw_calls", "batches_count",
+        "setpass_calls", "target_lod_bias"
+    };
+
     // Per-run accumulators for summary stats
     private List<float> _cpuSamples = new List<float>();
     private List<float> _gpuSamples = new List<float>();
@@ -250,32 +260,7 @@ public class EvaluationLogger : MonoBehaviour
         _writer    = new StreamWriter(_filePath, append: false);
         _rowBuffer = new List<string>(bufferFlushInterval + 16);
 
-        _writer.WriteLine(
-            "cpu_frame_time_ms," +
-            "gpu_frame_time_ms," +
-            "triangle_count," +
-            "camera_velocity," +
-            "visible_renderer_count," +
-            "lod_bias_current," +
-            "fps," +
-            "camera_angular_velocity," +
-            "draw_call_estimate," +
-            "previous_bias," +
-            "frame_headroom_ms," +
-            "cam_pos_x," +
-            "cam_pos_y," +
-            "cam_pos_z," +
-            "cam_rot_y," +
-            "screen_coverage," +
-            "move_speed," +
-            "rotate_speed," +
-            "waypoint_index," +
-            "path_progress," +
-            "draw_calls," +
-            "batches_count," +
-            "setpass_calls," +
-            "target_lod_bias"
-        );
+        _writer.WriteLine(string.Join(",", CsvHeaders));
     }
 
     private void Flush()
