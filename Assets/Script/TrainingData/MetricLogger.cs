@@ -16,7 +16,7 @@ public class MetricLogger : MonoBehaviour
     public bool loggingComplete = false;
 
     [Header("Coverage Sampling")]
-    public int coverageSampleInterval = 4;
+    public int coverageSampleInterval = 30; // CHANGED from 4 to 30
 
     [Header("References")]
     public CameraPathAnimator cameraPath;
@@ -46,6 +46,8 @@ public class MetricLogger : MonoBehaviour
     private int _cachedVisibleRenderers = 0;
     private float _cachedScreenCoverage = 0f;
     private int _coverageFrameCounter = 0;
+
+    private Plane[] _frustumPlanes = new Plane[6]; // CHANGED pre-allocated to avoid per-call GC alloc
 
     void Awake()
     {
@@ -270,7 +272,7 @@ public class MetricLogger : MonoBehaviour
 
     private (int count, float coverage) CountVisibleRenderersAndCoverage()
     {
-        Plane[] frustum = GeometryUtility.CalculateFrustumPlanes(targetCamera);
+        GeometryUtility.CalculateFrustumPlanes(targetCamera, _frustumPlanes); // CHANGED non-allocating overload uses pre-allocated array
         float screenW   = Screen.width;
         float screenH   = Screen.height;
         int count       = 0;
@@ -278,7 +280,7 @@ public class MetricLogger : MonoBehaviour
 
         foreach (Renderer r in _allRenderers)
         {
-            if (r == null || !r.enabled || !GeometryUtility.TestPlanesAABB(frustum, r.bounds))
+            if (r == null || !r.enabled || !GeometryUtility.TestPlanesAABB(_frustumPlanes, r.bounds))
                 continue;
 
             Bounds b = r.bounds;
