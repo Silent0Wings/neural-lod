@@ -16,10 +16,13 @@ public class MetricLogger : MonoBehaviour
     public bool loggingComplete = false;
 
     [Header("Coverage Sampling")]
-    public int coverageSampleInterval = 30; // CHANGED from 4 to 30
+    public int coverageSampleInterval = 30;
 
     [Header("References")]
     public CameraPathAnimator cameraPath;
+
+    [Header("Renderer Rescan")]
+    public bool forceRendererRescan = false; // FAULT-16 flag for manual rescan trigger
 
     private ProfilerRecorder _trisRecorder;
     private ProfilerRecorder _drawCallRecorder;
@@ -47,7 +50,11 @@ public class MetricLogger : MonoBehaviour
     private float _cachedScreenCoverage = 0f;
     private int _coverageFrameCounter = 0;
 
-    private Plane[] _frustumPlanes = new Plane[6]; // CHANGED pre-allocated to avoid per-call GC alloc
+    private Plane[] _frustumPlanes = new Plane[6];
+
+    // LOGIC-03 manual velocity tracking
+    private Vector3 _lastCamPosition;
+    private bool _skipVelocityFrame = false;
 
     void Awake()
     {
@@ -62,10 +69,15 @@ public class MetricLogger : MonoBehaviour
 
     void OnEnable()
     {
-        _trisRecorder     = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Triangles Count");
-        _drawCallRecorder = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Draw Calls Count");
-        _batchesRecorder  = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Batches Count");
-        _setpassRecorder  = ProfilerRecorder.StartNew(ProfilerCategory.Render, "SetPass Calls Count");
+        // PERF-02 guard against redundant recorder creation on re-enable
+        if (!_trisRecorder.Valid)
+            _trisRecorder = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Triangles Count");
+        if (!_drawCallRecorder.Valid)
+            _drawCallRecorder = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Draw Calls Count");
+        if (!_batchesRecorder.Valid)
+            _batchesRecorder = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Batches Count");
+        if (!_setpassRecorder.Valid)
+            _setpassRecorder = ProfilerRecorder.StartNew(ProfilerCategory.Render, "SetPass Calls Count");
     }
 
     void OnDisable()
@@ -81,6 +93,10 @@ public class MetricLogger : MonoBehaviour
         _lastCamRotation = targetCamera.transform.rotation;
         _lastLodBias     = QualitySettings.lodBias;
         _allRenderers    = FindObjectsByType<Renderer>(FindObjectsSortMode.None);
+
+        // LOGIC-03 init manual velocity tracking
+        _lastCamPosition   = targetCamera.transform.position;
+        _skipVelocityFrame = true;
     }
 
     private void ApplyTimingGuards()
@@ -91,6 +107,13 @@ public class MetricLogger : MonoBehaviour
 
     public void ResetLogger(int runIndex, float moveSpeed, float rotateSpeed)
     {
+        // FAULT-16 only rescan if needed
+        if (_allRenderers == null || _allRenderers.Length == 0 || forceRendererRescan)
+        {
+            _allRenderers = FindObjectsByType<Renderer>(FindObjectsSortMode.None);
+            forceRendererRescan = false;
+        }
+
         ApplyTimingGuards();
 
         _currentMoveSpeed   = moveSpeed;
@@ -98,16 +121,18 @@ public class MetricLogger : MonoBehaviour
 
         FlushAndCloseFile();
 
-        _runIndex            = runIndex;
-        _validRows           = 0;
-        _frameCount          = 0;
+        _runIndex             = runIndex;
+        _validRows            = 0;
+        _frameCount           = 0;
         _coverageFrameCounter = 0;
-        loggingComplete      = false;
-        _lastLodBias         = QualitySettings.lodBias;
+        loggingComplete       = false;
+        _lastLodBias          = QualitySettings.lodBias;
 
         OpenNewFile(moveSpeed, rotateSpeed);
-        _skipAngularFrame = true;
-        _allRenderers     = FindObjectsByType<Renderer>(FindObjectsSortMode.None);
+        _skipAngularFrame  = true;
+        _skipVelocityFrame = true; // LOGIC-03 reset velocity skip on new run
+        _lastCamPosition   = targetCamera.transform.position;
+
         Debug.Log($"[MetricLogger] Reset for run {_runIndex}. File: {_filePath}");
     }
 
@@ -121,7 +146,7 @@ public class MetricLogger : MonoBehaviour
                 $"_rot_{rotateSpeed:F1}" +
                 $".csv";
 
-        _writer   = new StreamWriter(_filePath, append: false);
+        _writer    = new StreamWriter(_filePath, append: false);
         _rowBuffer = new List<string>(bufferFlushInterval + 16);
 
         _writer.WriteLine(
@@ -191,10 +216,17 @@ public class MetricLogger : MonoBehaviour
 
         long tris = _trisRecorder.Valid ? _trisRecorder.LastValue : 0;
 
-        float velocity = targetCamera != null ? targetCamera.velocity.magnitude : 0f;
+        // LOGIC-03 manual transform-based velocity
         Vector3 camPos = targetCamera.transform.position;
-        float camRotY  = targetCamera.transform.eulerAngles.y;
-        float fps      = 1f / Time.deltaTime;
+        float velocity = 0f;
+        if (_skipVelocityFrame)
+            _skipVelocityFrame = false;
+        else
+            velocity = (camPos - _lastCamPosition).magnitude / Time.deltaTime;
+        _lastCamPosition = camPos;
+
+        float camRotY = targetCamera.transform.eulerAngles.y;
+        float fps     = 1f / Time.deltaTime;
 
         UpdateAngularVelocity();
 
@@ -208,8 +240,8 @@ public class MetricLogger : MonoBehaviour
         }
 
         long drawCalls    = _drawCallRecorder.Valid ? _drawCallRecorder.LastValue : 0;
-        long batchesCount = _batchesRecorder.Valid ? _batchesRecorder.LastValue : 0;
-        long setpassCalls = _setpassRecorder.Valid ? _setpassRecorder.LastValue : 0;
+        long batchesCount = _batchesRecorder.Valid  ? _batchesRecorder.LastValue  : 0;
+        long setpassCalls = _setpassRecorder.Valid  ? _setpassRecorder.LastValue  : 0;
 
         float lodBias      = QualitySettings.lodBias;
         float previousBias = _lastLodBias;
@@ -217,11 +249,18 @@ public class MetricLogger : MonoBehaviour
 
         float frameHeadroom = 16.6f - Mathf.Max(cpu, gpu);
 
-        int   waypointIndex = cameraPath != null ? cameraPath.CurrentIndex  : -1;
+        int   waypointIndex = cameraPath != null ? cameraPath.CurrentIndex : -1;
         float pathProgress  = cameraPath != null ? cameraPath.PathProgress  : -1f;
 
+        // LOGIC-07 count dropped rows instead of silently returning
         bool validRow = cpu > 0f && gpu > 0f && tris > 0 && velocity >= 0f;
-        if (!validRow) return;
+        if (!validRow)
+        {
+            _frameCount++;
+            if (_frameCount <= 128)
+                Debug.LogWarning($"[MetricLogger] Frame {_frameCount} dropped invalid row: cpu={cpu} gpu={gpu} tris={tris}");
+            return;
+        }
 
         string row =
             $"{cpu:F4}," +
@@ -272,7 +311,7 @@ public class MetricLogger : MonoBehaviour
 
     private (int count, float coverage) CountVisibleRenderersAndCoverage()
     {
-        GeometryUtility.CalculateFrustumPlanes(targetCamera, _frustumPlanes); // CHANGED non-allocating overload uses pre-allocated array
+        GeometryUtility.CalculateFrustumPlanes(targetCamera, _frustumPlanes);
         float screenW   = Screen.width;
         float screenH   = Screen.height;
         int count       = 0;
@@ -309,8 +348,8 @@ public class MetricLogger : MonoBehaviour
         }
         Quaternion deltaRot = targetCamera.transform.rotation * Quaternion.Inverse(_lastCamRotation);
         deltaRot.ToAngleAxis(out float angle, out Vector3 _);
-        _angularVelocity  = angle / Time.deltaTime;
-        _lastCamRotation  = targetCamera.transform.rotation;
+        _angularVelocity = angle / Time.deltaTime;
+        _lastCamRotation = targetCamera.transform.rotation;
     }
 
     void OnDestroy()
