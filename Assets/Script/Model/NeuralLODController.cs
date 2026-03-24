@@ -84,7 +84,7 @@ public class NeuralLODController : MonoBehaviour
         }
 
         // CRITICAL-02: check for conflicting fixed-bias scripts on same GameObject
-        var fixedBias = GetComponent<FixedLODBiasController>();
+        var fixedBias = GetComponent<LODBiasController>();
         if (fixedBias != null && fixedBias.enabled)
         {
             Debug.LogError("[NeuralLODController] FixedLODBiasController is active on the same " +
