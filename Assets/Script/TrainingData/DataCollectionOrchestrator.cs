@@ -118,7 +118,7 @@ public class DataCollectionOrchestrator : MonoBehaviour
         logger.ResetLogger(index, _currentSpeed, _currentRot);
         logger.enabled = false;
 
-        cpa.ResetPath();
+        cpa.ResetPath(newMoveSpeed: speed);
         cpa.IsPaused = false; // DESIGN-01: Allow camera to move during warmup
 
         _waitingForWarmup = true;

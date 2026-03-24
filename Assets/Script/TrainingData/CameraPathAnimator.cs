@@ -214,13 +214,15 @@ public class CameraPathAnimator : MonoBehaviour
         }
     }
 
-    public void ResetPath()
+    public void ResetPath(float newMoveSpeed = -1f)
     {
         if (_path.Count == 0)
         {
             Debug.LogWarning("[CameraPathAnimator] Cannot reset — path is empty.");
             return;
         }
+        if (newMoveSpeed > 0f)
+            moveSpeed = newMoveSpeed;   // apply before timeout calc
 
         _currentIndex = 0;
         completed = false;
