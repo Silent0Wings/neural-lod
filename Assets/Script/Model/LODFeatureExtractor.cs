@@ -56,8 +56,8 @@ public class LODFeatureExtractor : MonoBehaviour
     public string scalerJsonFileName = "scaler_constants.json";
 
     [Header("Coverage Sampling")]
-    [Tooltip("Sample visible renderers every N frames (performance)")]
-    public int coverageSampleInterval = 4;
+    [Tooltip("Sample visible renderers every N frames !!!! must match MetricLogger.coverageSampleInterval")]
+    public int coverageSampleInterval = 30;
 
     // Public output — read by NeuralLODController
     public float[] NormalizedFeatures { get; private set; } = new float[FEATURE_COUNT];
@@ -85,6 +85,8 @@ public class LODFeatureExtractor : MonoBehaviour
     private Quaternion _lastCamRotation;
     private float      _angularVelocity  = 0f;
     private bool       _skipAngularFrame = true;
+
+    private Plane[] _frustumPlanes = new Plane[6]; // pre-alloc — eliminates per-sample GC alloc
 
     void Awake()
     {
@@ -196,7 +198,8 @@ public class LODFeatureExtractor : MonoBehaviour
         if (_coverageFrameCounter < coverageSampleInterval) return;
         _coverageFrameCounter = 0;
 
-        Plane[] frustum = GeometryUtility.CalculateFrustumPlanes(targetCamera);
+        // non-allocating overload — writes into pre-allocated array
+        GeometryUtility.CalculateFrustumPlanes(targetCamera, _frustumPlanes);
         float sw = Screen.width;
         float sh = Screen.height;
         int count = 0;
@@ -205,7 +208,7 @@ public class LODFeatureExtractor : MonoBehaviour
         foreach (Renderer r in _allRenderers)
         {
             if (r == null || !r.enabled) continue;
-            if (!GeometryUtility.TestPlanesAABB(frustum, r.bounds)) continue;
+            if (!GeometryUtility.TestPlanesAABB(_frustumPlanes, r.bounds)) continue;
             Vector3 sp = targetCamera.WorldToScreenPoint(r.bounds.center);
             if (sp.z < 0f) continue;
 
@@ -216,7 +219,7 @@ public class LODFeatureExtractor : MonoBehaviour
             float h = Mathf.Abs(mx.y - mn.y) / sh;
             total += Mathf.Clamp01(w) * Mathf.Clamp01(h);
         }
-        _cachedVisibleCount = count;
+        _cachedVisibleCount   = count;
         _cachedScreenCoverage = count > 0 ? total / count : 0f;
     }
 
