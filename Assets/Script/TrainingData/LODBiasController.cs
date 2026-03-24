@@ -9,11 +9,21 @@ public class LODBiasController : MonoBehaviour
 {
     [Range(0.1f, 100.0f)]
     public float lodBias = 1.0f;
+    [Header("Neural Control")]
+    [Tooltip("Set true when NeuralLODController is active — skips bias override on startup")]
+    public bool neuralControlActive = false;
 
     void Awake()
     {
-        UpdateBias(lodBias);
-        LogLODBias();
+        if (neuralControlActive)
+        {
+            Debug.Log("[LODBiasController] Neural control active — startup bias override skipped.");
+            LogLODBias();
+            return;
+    }
+
+    UpdateBias(lodBias);
+    LogLODBias();
     }
 
     public void UpdateBias(float f)

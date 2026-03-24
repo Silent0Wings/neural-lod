@@ -1,81 +1,94 @@
 using UnityEngine;
 using Unity.InferenceEngine;
 
-/// <summary>
-/// NeuralLODController
-/// Runs inference every N frames using the trained MLP (lod_mlp_single.onnx)
-/// and applies the predicted LOD bias to QualitySettings with stability controls.
-///
-/// Requires LODFeatureExtractor on the same GameObject.
-/// </summary>
+// NeuralLODController
+// Runs inference using the trained MLP and applies the predicted LOD bias
+// to QualitySettings with stability controls.
+// Requires LODFeatureExtractor on the same GameObject.
+// CRITICAL fix list applied: FAULT-19, FAULT-22, CONTRA-02, CONTRA-03,
+// CONTRA-04, CRITICAL-02, LOGIC-01, LOGIC-02, LOGIC-04, LOGIC-05
+
 public class NeuralLODController : MonoBehaviour
 {
-    
-    // Inspector
-    
+    // inspector
+
     [Header("Model")]
     public ModelAsset onnxAsset;
 
     [Header("Inference Settings")]
-    [Tooltip("Run inference every N frames to reduce overhead")]
-    public int inferenceInterval = 5;
+    [Tooltip("Run inference every N frames")]
+    public int inferenceInterval = 2; // LOGIC-01 fix: was 5 frames, too slow for P95 control
 
     [Header("Stability Controls")]
-    [Tooltip("Minimum bias increase to trigger an upward switch")]
-    public float hysteresisUp   = 0.10f;
-    [Tooltip("Minimum bias decrease to trigger a downward switch")]
-    public float hysteresisDown = 0.15f;
-    [Tooltip("Minimum frames between bias changes")]
-    public int   dwellFrames    = 30;
-    [Tooltip("Maximum bias change per update")]
+    [Tooltip("Min bias increase to trigger an upward switch")]
+    public float hysteresisUp   = 0.05f; // LOGIC-02 fix: was 0.10, too conservative
+    [Tooltip("Min bias decrease to trigger a downward switch")]
+    public float hysteresisDown = 0.08f; // LOGIC-02 fix: was 0.15, too conservative
+    [Tooltip("Min frames between bias changes")]
+    public int   dwellFrames    = 10;    // CONTRA-04 fix: was 30 frames, too slow for P95
+    [Tooltip("Max bias change per update")]
     public float maxDelta       = 0.25f;
 
     [Header("Debug")]
     public bool logPredictions = false;
 
-    
-    // Read-only status
-    
-    [Header("Status (read-only)")]
-    [SerializeField] private float _currentBias    = 1.0f;
-    [SerializeField] private float _predictedBias  = 1.0f;
-    [SerializeField] private float _currentLR      = 0f;
+    // read-only status
 
-    
-    // Private
-    
-    private Worker             _worker;
-    private Model              _model;
+    [Header("Status (read-only)")]
+    [SerializeField] private float _currentBias   = 1.0f;
+    [SerializeField] private float _predictedBias = 1.0f;
+
+    // private
+
+    private Worker              _worker;
+    private Model               _model;
     private LODFeatureExtractor _extractor;
 
-    private int   _lastSwitchFrame = 0;
-    private const int INPUT_DIM    = 20;
+    private int _lastSwitchFrame;
+
+    // CONTRA-02 fix: INPUT_DIM must match v4 feature count (12 not 20)
+    private const int INPUT_DIM = 12;
 
     private int _underBudgetFrames = 0;
     private int _overBudgetFrames  = 0;
 
-    // tuning
-    private const int RecoveryFramesRequired  = 60;  // frames under budget before stepping up
-    private const int OverBudgetFramesRequired = 10;  // frames over budget before stepping down
-    private const float BiasStep = 0.25f;
+    private const int   RecoveryFramesRequired   = 60;
+    private const int   OverBudgetFramesRequired = 10;
+    private const float BiasStep                 = 0.25f;
 
-    
-    // Lifecycle
-    
+    // FAULT-19: track how many frames extractor has not been ready
+    private int  _notReadyFrames   = 0;
+    private const int NotReadyWarnInterval = 120; // warn every 2 seconds at 60fps
+
+    // CRITICAL-02: flag set at Awake to confirm this controller owns bias control
+    private bool _controllerActive = false;
+
+    // lifecycle
+
     void Awake()
     {
         _extractor = GetComponent<LODFeatureExtractor>();
 
         if (_extractor == null)
         {
-            Debug.LogError("[NeuralLODController] LODFeatureExtractor not found on this GameObject.");
+            Debug.LogError("[NeuralLODController] LODFeatureExtractor not found.");
             enabled = false;
             return;
         }
 
         if (onnxAsset == null)
         {
-            Debug.LogError("[NeuralLODController] No ONNX model asset assigned.");
+            Debug.LogError("[NeuralLODController] No ONNX asset assigned.");
+            enabled = false;
+            return;
+        }
+
+        // CRITICAL-02: check for conflicting fixed-bias scripts on same GameObject
+        var fixedBias = GetComponent<FixedLODBiasController>();
+        if (fixedBias != null && fixedBias.enabled)
+        {
+            Debug.LogError("[NeuralLODController] FixedLODBiasController is active on the same " +
+                           "GameObject. Disable it before enabling NeuralLODController.");
             enabled = false;
             return;
         }
@@ -84,37 +97,53 @@ public class NeuralLODController : MonoBehaviour
         _worker = new Worker(_model, BackendType.CPU);
 
         _currentBias = QualitySettings.lodBias;
-        Debug.Log("[NeuralLODController] Initialized. Starting bias: " + _currentBias);
+
+        // LOGIC-04 fix: init to current frame so dwell guard does not fire immediately
+        _lastSwitchFrame = Time.frameCount;
+
+        _controllerActive = true;
+        Debug.Log("[NeuralLODController] Initialized. Bias: " + _currentBias +
+                  " | INPUT_DIM: " + INPUT_DIM);
     }
 
     void Update()
     {
-        if (!_extractor.IsReady) return;
+        // FAULT-19 fix: periodic warning if extractor never becomes ready
+        if (!_extractor.IsReady)
+        {
+            _notReadyFrames++;
+            if (_notReadyFrames % NotReadyWarnInterval == 0)
+                Debug.LogWarning("[NeuralLODController] LODFeatureExtractor not ready for " +
+                                 _notReadyFrames + " frames.");
+            return;
+        }
+
+        _notReadyFrames = 0;
+
         if (Time.frameCount % inferenceInterval != 0) return;
 
         float cpu = _extractor.CpuFrameTime;
         float gpu = _extractor.GpuFrameTime;
 
         if (gpu <= 0f || cpu <= 0f)
-            return; // hold previous bias
+            return;
 
-        float cpuMs = cpu; // using cpu time 
         float budget = 16.6f;
 
-        if (cpuMs < budget)
+        if (cpu < budget)
         {
             _underBudgetFrames++;
             _overBudgetFrames = 0;
 
-            // recovery: force bias up after sustained under-budget frames
             if (_underBudgetFrames >= RecoveryFramesRequired)
             {
                 _underBudgetFrames = 0;
-                float recovered = Mathf.Min(QualitySettings.lodBias + BiasStep, _extractor.BiasMax);
+                float recovered = Mathf.Min(QualitySettings.lodBias + BiasStep,
+                                            _extractor.BiasMax);
                 QualitySettings.lodBias = recovered;
                 _currentBias            = recovered;
                 _lastSwitchFrame        = Time.frameCount;
-                return; // skip model inference this frame
+                return;
             }
         }
         else
@@ -122,14 +151,23 @@ public class NeuralLODController : MonoBehaviour
             _overBudgetFrames++;
             _underBudgetFrames = 0;
 
-            // only allow model to drop bias after sustained over-budget frames
             if (_overBudgetFrames < OverBudgetFramesRequired)
-                return; // hold current bias, skip inference
+                return;
         }
 
-        float predicted = RunInference(_extractor.NormalizedFeatures);
-        _predictedBias  = predicted;
+        float[] features = _extractor.NormalizedFeatures;
+        if (features == null || features.Length != INPUT_DIM)
+        {
+            Debug.LogWarning("[NeuralLODController] Feature array is null or wrong length: " +
+                             (features?.Length.ToString() ?? "null") +
+                             " (expected " + INPUT_DIM + ").");
+            return;
+        }
 
+        float predicted = RunInference(features);
+        if (float.IsNaN(predicted)) return; // FAULT-22 guard propagated from inference
+
+        _predictedBias = predicted;
         ApplyWithStabilityControls(predicted);
     }
 
@@ -138,48 +176,82 @@ public class NeuralLODController : MonoBehaviour
         _worker?.Dispose();
     }
 
-
-    // Inference
+    // inference
 
     private float RunInference(float[] features)
     {
         using var inputTensor = new Tensor<float>(new TensorShape(1, INPUT_DIM), features);
         _worker.Schedule(inputTensor);
 
-        var outputTensor = _worker.PeekOutput("lod_bias_normalized") as Tensor<float>;
-        using var cpuTensor = outputTensor.ReadbackAndClone();
+        // FAULT-22 fix: null-check output tensor before cast and readback
+        var rawOutput = _worker.PeekOutput("lod_bias_normalized");
+        if (rawOutput == null)
+        {
+            Debug.LogError("[NeuralLODController] Output tensor 'lod_bias_normalized' is null.");
+            return float.NaN;
+        }
 
-        float normalized = cpuTensor[0];
-        float denormalized = normalized * (_extractor.BiasMax - _extractor.BiasMin) + _extractor.BiasMin;
+        // LOGIC-05 fix: explicit type check before cast
+        if (rawOutput is not Tensor<float> outputTensor)
+        {
+            Debug.LogError("[NeuralLODController] Output tensor is not Tensor<float>. " +
+                           "Actual type: " + rawOutput.GetType().Name);
+            return float.NaN;
+        }
+
+        // FAULT-22 fix: ReadbackAndClone inside try-catch, dispose clone after read
+        float normalized;
+        try
+        {
+            using var cpuTensor = outputTensor.ReadbackAndClone();
+            normalized = cpuTensor[0];
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError("[NeuralLODController] Readback failed: " + ex.Message);
+            return float.NaN;
+        }
+
+        float denormalized = normalized * (_extractor.BiasMax - _extractor.BiasMin) +
+                             _extractor.BiasMin;
         denormalized = Mathf.Clamp(denormalized, _extractor.BiasMin, _extractor.BiasMax);
 
         if (logPredictions)
-            Debug.Log($"[NeuralLODController] Raw: {normalized:F4} | Bias: {denormalized:F4}");
+            Debug.Log("[NeuralLODController] Raw: " + normalized.ToString("F4") +
+                      " Bias: " + denormalized.ToString("F4"));
 
         return denormalized;
     }
 
-    // Stability controls
+    // stability controls
 
     private void ApplyWithStabilityControls(float predicted)
     {
         float current = QualitySettings.lodBias;
-        _currentBias = current; // Sync status display
+        _currentBias  = current;
 
         float delta = predicted - current;
 
-        // Hysteresis — ignore small changes
+        // hysteresis: ignore small changes
         if (delta > 0f && delta < hysteresisUp)   return;
         if (delta < 0f && -delta < hysteresisDown) return;
 
-        // Dwell time — minimum frames between changes
+        // dwell time
         if (Time.frameCount - _lastSwitchFrame < dwellFrames) return;
 
-        // Max delta per update — clamp step size
+        // CONTRA-03 fix: clamp delta BEFORE computing newBias, then clamp newBias to range.
+        // Original code computed newBias from clamped delta, which could still violate
+        // the hysteresis intent if maxDelta < hysteresis threshold.
         float clampedDelta = Mathf.Clamp(delta, -maxDelta, maxDelta);
-        float newBias      = Mathf.Clamp(current + clampedDelta,
-                                          _extractor.BiasMin,
-                                          _extractor.BiasMax);
+
+        // re-check hysteresis on the clamped delta so a maxDelta-truncated step that
+        // falls below hysteresis threshold does not produce a spurious tiny change
+        if (clampedDelta > 0f && clampedDelta < hysteresisUp)   return;
+        if (clampedDelta < 0f && -clampedDelta < hysteresisDown) return;
+
+        float newBias = Mathf.Clamp(current + clampedDelta,
+                                    _extractor.BiasMin,
+                                    _extractor.BiasMax);
 
         if (Mathf.Approximately(newBias, current)) return;
 
@@ -187,7 +259,8 @@ public class NeuralLODController : MonoBehaviour
         _currentBias            = newBias;
         _lastSwitchFrame        = Time.frameCount;
 
-        Debug.Log($"[NeuralLODController] Bias changed: {current:F3} -> {newBias:F3} " +
-                  $"(predicted: {predicted:F3})");
+        Debug.Log("[NeuralLODController] Bias " + current.ToString("F3") +
+                  " -> " + newBias.ToString("F3") +
+                  " (predicted: " + predicted.ToString("F3") + ")");
     }
 }

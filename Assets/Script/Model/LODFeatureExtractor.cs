@@ -90,12 +90,24 @@ public class LODFeatureExtractor : MonoBehaviour
 
     void Awake()
     {
-        if (targetCamera == null) targetCamera = Camera.main;
-        if (cameraPath == null)   cameraPath   = FindFirstObjectByType<CameraPathAnimator>();
+        if (targetCamera == null)
+        {
+            targetCamera = Camera.main;
+            if (targetCamera == null)
+            {
+                Debug.LogError("[LODFeatureExtractor] No camera assigned and Camera.main is null. " +
+                            "Tag a camera as MainCamera or assign targetCamera in the Inspector.");
+                enabled = false; // disable component so Update never runs
+                return;
+            }
+        }
+
+        if (cameraPath == null)
+            cameraPath = FindFirstObjectByType<CameraPathAnimator>();
 
         LoadScalerConstants();
         _allRenderers = FindObjectsByType<Renderer>(FindObjectsSortMode.None);
-        _lastLodBias = QualitySettings.lodBias;
+        _lastLodBias  = QualitySettings.lodBias;
     }
 
     void OnEnable()
