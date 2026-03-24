@@ -259,6 +259,16 @@ public class LODFeatureExtractor : MonoBehaviour
             }
         }
 
+            for (int i = 0; i < FEATURE_COUNT; i++)
+        {
+            if (Mathf.Approximately(data.scale[i], 0f))
+            {
+                Debug.LogError($"[LODFeatureExtractor] Scale[{i}] ('{ExpectedFeatureNames[i]}') is zero — " +
+                            "would cause divide-by-zero in normalization. Aborting.");
+                return;
+            }
+        }
+
         _scalerMean  = data.mean;
         _scalerScale = data.scale;
         _biasMin     = data.bias_min;
