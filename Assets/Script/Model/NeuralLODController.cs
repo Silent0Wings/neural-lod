@@ -46,8 +46,8 @@ public class NeuralLODController : MonoBehaviour
 
     private int _lastSwitchFrame;
 
-    // CONTRA-02 fix: INPUT_DIM must match v4 feature count (12 not 20)
-    private const int INPUT_DIM = 12;
+    // CONTRA-02 fix: INPUT_DIM must match v4 feature count (20)
+    private const int INPUT_DIM = 20;
 
     private int _underBudgetFrames = 0;
     private int _overBudgetFrames  = 0;
