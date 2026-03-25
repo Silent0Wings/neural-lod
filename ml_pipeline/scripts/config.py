@@ -46,7 +46,7 @@ EVAL_COMPARE_FIG = PLOTS_DIR / "compare_eval_vs_train.png"
 
 TARGET_FPS      = 60
 TARGET_FRAME_MS = 1000.0 / TARGET_FPS   # 16.66 ms
-SAFE_TARGET_MS  = TARGET_FRAME_MS * 0.90
+SAFE_TARGET_MS  = TARGET_FRAME_MS          # 16.66ms — only penalize actual overruns (was *0.90 = 14.99ms)
 
 # merge stage
 DROP_SLOW  = False
@@ -56,6 +56,6 @@ FIX_HEADROOM = True
 # oracle label stage
 POSITION_BINS  = 50
 ROTATION_BINS  = 8
-LAMBDA         = 6
-SOFTMAX_TEMP   = 0.5
+LAMBDA         = 2    # was 6 — too aggressive, crushed all high-bias scores with any penalty
+SOFTMAX_TEMP   = 1.0  # was 0.5 — too sharp, collapsed expected value toward center
 HEADROOM_WEIGHT = 0.3

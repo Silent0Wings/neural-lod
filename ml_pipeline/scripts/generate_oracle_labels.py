@@ -58,6 +58,7 @@ def run():
             headroom_ratio = max(0.0, (SAFE_TARGET_MS - max_frame_time) / SAFE_TARGET_MS)
             headroom_bonus = HEADROOM_WEIGHT * headroom_ratio * quality
             score          = quality - LAMBDA * perf_penalty + headroom_bonus
+            print(f"  bias={bias:.2f}  p95_cpu={p95_cpu:.2f}  p95_gpu={p95_gpu:.2f}  penalty={perf_penalty:.4f}  score={score:.4f}")
             scores.append(score)
             present_biases.append(bias)
 

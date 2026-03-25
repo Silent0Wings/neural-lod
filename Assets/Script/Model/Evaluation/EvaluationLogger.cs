@@ -38,6 +38,7 @@ public class EvaluationLogger : MonoBehaviour
     [Header("References")]
     public Camera targetCamera;
     public CameraPathAnimator cameraPath;
+    public RunTerminator runTerminator;
 
     [Header("Status (read-only)")]
     [SerializeField] private bool  _loggingComplete = false;
@@ -96,6 +97,12 @@ public class EvaluationLogger : MonoBehaviour
 
         if (cameraPath == null)
             cameraPath = FindFirstObjectByType<CameraPathAnimator>();
+
+        if (runTerminator == null)
+            runTerminator = FindFirstObjectByType<RunTerminator>();
+
+        if (runTerminator == null)
+            Debug.LogWarning("[EvaluationLogger] No RunTerminator found — Play Mode will not stop automatically.");
         
         _allRenderers = FindObjectsByType<Renderer>(FindObjectsSortMode.None);
     }
@@ -353,6 +360,22 @@ public class EvaluationLogger : MonoBehaviour
             $"  Flip rate: {flipRate:F3} switches/s\n" +
             $"  File:      {_filePath}"
         );
+
+        // Trigger termination chain — stops Play Mode in Editor, quits in a build.
+        if (runTerminator != null)
+        {
+            Debug.Log("[EvaluationLogger] Requesting termination via RunTerminator.");
+            runTerminator.Terminate();
+        }
+        else
+        {
+            Debug.LogWarning("[EvaluationLogger] RunTerminator is null — terminating directly.");
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.isPlaying = false;
+#else
+            Application.Quit();
+#endif
+        }
     }
 
     // ------------------------------------------------------------------
