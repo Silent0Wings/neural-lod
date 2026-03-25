@@ -97,7 +97,7 @@ public class LODFeatureExtractor : MonoBehaviour
             {
                 Debug.LogError("[LODFeatureExtractor] No camera assigned and Camera.main is null. " +
                             "Tag a camera as MainCamera or assign targetCamera in the Inspector.");
-                enabled = false; // disable component so Update never runs
+                enabled = false;
                 return;
             }
         }
@@ -131,11 +131,18 @@ public class LODFeatureExtractor : MonoBehaviour
         // 1. Capture Timings
         FrameTimingManager.CaptureFrameTimings();
         uint count = FrameTimingManager.GetLatestTimings(1, _frameTimings);
-        
+
         float cpu = count > 0 ? (float)_frameTimings[0].cpuFrameTime : 0f;
         float gpu = count > 0 ? (float)_frameTimings[0].gpuFrameTime : 0f;
         CpuFrameTime = cpu;
         GpuFrameTime = gpu;
+
+        // outlier guard — skip warmup and invalid frames
+        // NormalizedFeatures stays at last valid state
+        // NeuralLODController will infer on the next valid frame
+        long trisEarly = _trisRecorder.Valid ? _trisRecorder.LastValue : 0;
+        if (cpu <= 0f || gpu <= 0f || trisEarly <= 0)
+            return;
 
         // 2. Compute Angular Velocity
         UpdateAngularVelocity();
@@ -144,39 +151,39 @@ public class LODFeatureExtractor : MonoBehaviour
         UpdateCoverageCache();
 
         // 4. Collect Stats
-        float  vel      = targetCamera.velocity.magnitude;
-        float  fps      = Time.deltaTime > 0f ? 1f / Time.deltaTime : 60f;
-        long   tris     = _trisRecorder.Valid ? _trisRecorder.LastValue : 0;
-        long   draws    = _drawCallRecorder.Valid ? _drawCallRecorder.LastValue : 0;
-        Vector3 pos     = targetCamera.transform.position;
-        float   rotY    = targetCamera.transform.eulerAngles.y;
+        float   vel    = targetCamera.velocity.magnitude;
+        float   fps    = Time.deltaTime > 0f ? 1f / Time.deltaTime : 60f;
+        long    tris   = trisEarly; // reuse value already read above
+        long    draws  = _drawCallRecorder.Valid ? _drawCallRecorder.LastValue : 0;
+        Vector3 pos    = targetCamera.transform.position;
+        float   rotY   = targetCamera.transform.eulerAngles.y;
         float   curBias = QualitySettings.lodBias;
-        float   pathP   = cameraPath != null ? cameraPath.PathProgress : 0f;
-        int     wayIdx  = cameraPath != null ? cameraPath.CurrentIndex : -1;
+        float   pathP  = cameraPath != null ? cameraPath.PathProgress  : 0f;
+        int     wayIdx = cameraPath != null ? cameraPath.CurrentIndex : -1;
 
         // 5. Construct Raw Feature Array (MUST MATCH 20-FEATURE ORDER)
         float[] raw = new float[FEATURE_COUNT]
         {
-            cpu,                      // 0
-            gpu,                      // 1
-            (float)tris,              // 2
-            vel,                      // 3
-            _angularVelocity,         // 4
-            (float)_cachedVisibleCount,// 5
-            (float)draws,             // 6
-            16.6f - Mathf.Max(cpu, gpu), // 7 (frame_headroom_ms)
-            _cachedScreenCoverage,    // 8
-            curBias,                  // 9 (lod_bias_current)
-            fps,                      // 10
-            _lastLodBias,             // 11 (previous_bias)
-            pos.x,                    // 12
-            pos.y,                    // 13
-            pos.z,                    // 14
-            rotY,                     // 15
-            pathP,                    // 16
-            (float)wayIdx,            // 17
-            defaultMoveSpeed,         // 18
-            defaultRotateSpeed        // 19
+            cpu,                             // 0  cpu_frame_time_ms
+            gpu,                             // 1  gpu_frame_time_ms
+            (float)tris,                     // 2  triangle_count
+            vel,                             // 3  camera_velocity
+            _angularVelocity,                // 4  camera_angular_velocity
+            (float)_cachedVisibleCount,      // 5  visible_renderer_count
+            (float)draws,                    // 6  draw_call_estimate
+            16.6f - Mathf.Max(cpu, gpu),     // 7  frame_headroom_ms
+            _cachedScreenCoverage,           // 8  screen_coverage
+            curBias,                         // 9  lod_bias_current
+            fps,                             // 10 fps
+            _lastLodBias,                    // 11 previous_bias
+            pos.x,                           // 12 cam_pos_x
+            pos.y,                           // 13 cam_pos_y
+            pos.z,                           // 14 cam_pos_z
+            rotY,                            // 15 cam_rot_y
+            pathP,                           // 16 path_progress
+            (float)wayIdx,                   // 17 waypoint_index
+            defaultMoveSpeed,                // 18 move_speed
+            defaultRotateSpeed               // 19 rotate_speed
         };
 
         // 6. Normalize
@@ -193,9 +200,9 @@ public class LODFeatureExtractor : MonoBehaviour
     {
         if (_skipAngularFrame)
         {
-            _lastCamRotation = targetCamera.transform.rotation;
+            _lastCamRotation  = targetCamera.transform.rotation;
             _skipAngularFrame = false;
-            _angularVelocity = 0f;
+            _angularVelocity  = 0f;
             return;
         }
         Quaternion delta = targetCamera.transform.rotation * Quaternion.Inverse(_lastCamRotation);
@@ -210,11 +217,10 @@ public class LODFeatureExtractor : MonoBehaviour
         if (_coverageFrameCounter < coverageSampleInterval) return;
         _coverageFrameCounter = 0;
 
-        // non-allocating overload — writes into pre-allocated array
         GeometryUtility.CalculateFrustumPlanes(targetCamera, _frustumPlanes);
-        float sw = Screen.width;
-        float sh = Screen.height;
-        int count = 0;
+        float sw    = Screen.width;
+        float sh    = Screen.height;
+        int   count = 0;
         float total = 0f;
 
         foreach (Renderer r in _allRenderers)
@@ -231,6 +237,7 @@ public class LODFeatureExtractor : MonoBehaviour
             float h = Mathf.Abs(mx.y - mn.y) / sh;
             total += Mathf.Clamp01(w) * Mathf.Clamp01(h);
         }
+
         _cachedVisibleCount   = count;
         _cachedScreenCoverage = count > 0 ? total / count : 0f;
     }
@@ -271,12 +278,12 @@ public class LODFeatureExtractor : MonoBehaviour
             }
         }
 
-            for (int i = 0; i < FEATURE_COUNT; i++)
+        for (int i = 0; i < FEATURE_COUNT; i++)
         {
             if (Mathf.Approximately(data.scale[i], 0f))
             {
                 Debug.LogError($"[LODFeatureExtractor] Scale[{i}] ('{ExpectedFeatureNames[i]}') is zero — " +
-                            "would cause divide-by-zero in normalization. Aborting.");
+                               "would cause divide-by-zero in normalization. Aborting.");
                 return;
             }
         }
@@ -297,10 +304,9 @@ public class LODFeatureExtractor : MonoBehaviour
     private class ScalerData
     {
         public string[] feature_names;
-        public float[] mean;
-        public float[] scale;
-        public float   bias_min;
-        public float   bias_max;
+        public float[]  mean;
+        public float[]  scale;
+        public float    bias_min;
+        public float    bias_max;
     }
 }
-
