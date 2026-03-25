@@ -1,5 +1,12 @@
 """
-generate_oracle_labels.py  Stage 2: compute soft oracle labels from merged CSV.
+generate_oracle_labels.py  Stage 2: compute per-row reactive oracle labels.
+
+Logic:
+  if max(cpu, gpu) < SAFE_TARGET_MS  -> target = current_bias + BIAS_STEP  (nudge up)
+  if max(cpu, gpu) < TARGET_FRAME_MS -> target = current_bias               (hold)
+  else                               -> target = current_bias - BIAS_STEP  (nudge down)
+
+Labels are rounded to clean 0.25 steps and clipped to [BIAS_MIN, BIAS_MAX].
 """
 
 import pandas as pd
@@ -7,10 +14,13 @@ import numpy as np
 from config import (
     TRAINING_MERGED, TRAINING_LABELED,
     TARGET_FRAME_MS, SAFE_TARGET_MS,
-    POSITION_BINS, ROTATION_BINS,
-    LAMBDA, SOFTMAX_TEMP, HEADROOM_WEIGHT
 )
-    
+
+BIAS_STEP = 0.25
+BIAS_MIN  = 0.25
+BIAS_MAX  = 2.0
+
+
 def run():
     if not TRAINING_MERGED.exists():
         raise FileNotFoundError(
@@ -20,88 +30,58 @@ def run():
 
     df = pd.read_csv(TRAINING_MERGED)
     print(f"Loaded {len(df)} rows from {TRAINING_MERGED}")
+    print(f"Budget         : {TARGET_FRAME_MS:.2f} ms")
+    print(f"Safe budget    : {SAFE_TARGET_MS:.2f} ms")
+    print(f"Bias step      : {BIAS_STEP}")
+    print(f"Bias range     : [{BIAS_MIN}, {BIAS_MAX}]")
 
-    bias_values = sorted(df['lod_bias_current'].unique())
-    bias_min    = min(bias_values)
-    bias_max    = max(bias_values)
+    print(f"\nlod_bias_current distribution:")
+    print(df["lod_bias_current"].value_counts().sort_index())
 
-    print(f"Bias values    : {bias_values}")
-    print(f"Safe budget    : {SAFE_TARGET_MS:.2f} ms | Lambda: {LAMBDA} | Softmax temp: {SOFTMAX_TEMP} | Headroom weight: {HEADROOM_WEIGHT}")
-    print(f"path_progress  : {df['path_progress'].min():.4f} -> {df['path_progress'].max():.4f}")
-    print(f"cam_rot_y      : {df['cam_rot_y'].min():.4f} -> {df['cam_rot_y'].max():.4f}")
-    print(f"\nRows per bias:")
-    print(df['lod_bias_current'].value_counts().sort_index())
+    df = df.drop(columns=["target_lod_bias"], errors="ignore")
 
-    df['pos_bin']   = pd.cut(df['path_progress'], bins=POSITION_BINS, labels=False)
-    df['rot_bin']   = pd.cut(df['cam_rot_y'],     bins=ROTATION_BINS, labels=False)
-    df['state_bin'] = df['pos_bin'].astype(str) + "_" + df['rot_bin'].astype(str)
+    # per-row bottleneck
+    df["bottleneck_ms"] = df[["cpu_frame_time_ms", "gpu_frame_time_ms"]].max(axis=1)
 
-    bin_counts = df.groupby('state_bin').size()
-    sparse     = bin_counts[bin_counts < 30]
-    print(f"\nTotal state bins : {len(bin_counts)}")
-    if len(sparse) > 0:
-        print(f"WARNING {len(sparse)} sparse bins (<30 rows)")
-    else:
-        print(f"YES No sparse bins")
+    under_budget = df["bottleneck_ms"] < SAFE_TARGET_MS
+    at_budget    = (df["bottleneck_ms"] >= SAFE_TARGET_MS) & (df["bottleneck_ms"] < TARGET_FRAME_MS)
+    over_budget  = df["bottleneck_ms"] >= TARGET_FRAME_MS
 
-    def compute_soft_oracle(group):
-        scores, present_biases = [], []
-        for bias in bias_values:
-            subset = group[group['lod_bias_current'] == bias]
-            if len(subset) == 0:
-                continue
-            p95_cpu        = subset['cpu_frame_time_ms'].quantile(0.95)
-            p95_gpu        = subset['gpu_frame_time_ms'].quantile(0.95)
-            max_frame_time = max(p95_cpu, p95_gpu)
-            quality        = (bias - bias_min) / (bias_max - bias_min)
-            perf_penalty   = max(0.0, (max_frame_time - SAFE_TARGET_MS) / SAFE_TARGET_MS)
-            headroom_ratio = max(0.0, (SAFE_TARGET_MS - max_frame_time) / SAFE_TARGET_MS)
-            headroom_bonus = HEADROOM_WEIGHT * headroom_ratio * quality
-            score          = quality - LAMBDA * perf_penalty + headroom_bonus
-            print(f"  bias={bias:.2f}  p95_cpu={p95_cpu:.2f}  p95_gpu={p95_gpu:.2f}  penalty={perf_penalty:.4f}  score={score:.4f}")
-            scores.append(score)
-            present_biases.append(bias)
+    current = df["lod_bias_current"]
 
-        scores_arr  = np.array(scores) / SOFTMAX_TEMP
-        scores_arr -= scores_arr.max()
-        probs       = np.exp(scores_arr) / np.exp(scores_arr).sum()
-        expected_bias = float(np.dot(probs, present_biases))
+    df["target_lod_bias"] = np.where(
+        under_budget, (current + BIAS_STEP).clip(BIAS_MIN, BIAS_MAX),
+        np.where(
+            at_budget,  current.clip(BIAS_MIN, BIAS_MAX),
+                        (current - BIAS_STEP).clip(BIAS_MIN, BIAS_MAX)
+        )
+    )
 
-        soft_dict = {f"soft_{b}": p for b, p in zip(present_biases, probs)}
-        soft_dict["target_lod_bias"] = expected_bias
-        return pd.Series(soft_dict)
+    # round to clean 0.25 steps
+    df["target_lod_bias"] = (df["target_lod_bias"] / 0.25).round() * 0.25
+    df["target_lod_bias"] = df["target_lod_bias"].clip(BIAS_MIN, BIAS_MAX)
 
-    print("\nComputing soft oracle labels per state bin...")
-    soft_map = df.groupby('state_bin').apply(compute_soft_oracle, include_groups=False)
-    if isinstance(soft_map, pd.Series):
-        soft_map = soft_map.unstack()
+    df = df.drop(columns=["bottleneck_ms"])
 
-    df       = df.drop(columns=['target_lod_bias'], errors='ignore')
-    soft_cols = [c for c in soft_map.columns if c.startswith("soft_")]
+    print(f"\nZone distribution:")
+    print(f"  Under budget (nudge up)  : {under_budget.sum():>8}  ({under_budget.mean()*100:.1f}%)")
+    print(f"  At budget    (hold)      : {at_budget.sum():>8}  ({at_budget.mean()*100:.1f}%)")
+    print(f"  Over budget  (nudge down): {over_budget.sum():>8}  ({over_budget.mean()*100:.1f}%)")
 
-    for col in soft_cols + ["target_lod_bias"]:
-        df[col] = df['state_bin'].map(soft_map[col])
+    print(f"\nRounded label distribution:")
+    print(df["target_lod_bias"].value_counts().sort_index())
 
-    df = df.drop(columns=['pos_bin', 'rot_bin', 'state_bin'])
+    print(f"\ntarget_lod_bias stats:")
+    print(df["target_lod_bias"].describe().round(4))
 
-    before  = len(df)
-    df      = df.dropna(subset=["target_lod_bias"])
-    dropped = before - len(df)
-    if dropped > 0:
-        print(f"WARNING Dropped {dropped} rows with NaN oracle (sparse bins)")
-    else:
-        print(f"YES No rows dropped")
-
-    print(f"\nLabeled rows: {df['target_lod_bias'].notna().sum()} / {len(df)}")
-    print(f"target_lod_bias stats:")
-    print(df['target_lod_bias'].describe().round(4))
-
-    std  = df['target_lod_bias'].std()
+    std  = df["target_lod_bias"].std()
     flag = "COLLAPSE RISK" if std < 0.15 else "good spread"
     print(f"target_lod_bias std: {std:.4f}  ({flag})")
 
+    TRAINING_LABELED.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(TRAINING_LABELED, index=False)
     print(f"\nSaved -> {TRAINING_LABELED}")
+
 
 if __name__ == "__main__":
     run()

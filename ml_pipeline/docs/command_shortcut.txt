@@ -4,14 +4,26 @@ command = "python c:\Users\Gica\neural-lod\ml_pipeline\multi_mode\run_labeling.p
 # Command using environment variable for input directory (PowerShell)
 command_env = "$env:MULTI_MODE_INPUT = 'c:\Users\Gica\neural-lod\ml_pipeline\data\Train_Runs\Multi_Mode_Run'; & python c:\Users\Gica\neural-lod\ml_pipeline\multi_mode\run_labeling.py --input-dir $env:MULTI_MODE_INPUT"
 
-# Python executable (absolute path - use this, not ..\.venv which is broken)
+# Python executable (absolute path)
 python = "c:\Users\Gica\neural-lod\.venv\Scripts\python.exe"
 
 # Pipeline stage commands (run from ml_pipeline root)
-pipeline_merge        = "c:\Users\Gica\neural-lod\.venv\Scripts\python.exe run_pipeline.py --stage merge"
-pipeline_label        = "c:\Users\Gica\neural-lod\.venv\Scripts\python.exe run_pipeline.py --stage label"
-pipeline_eval_compare = "c:\Users\Gica\neural-lod\.venv\Scripts\python.exe run_pipeline.py --stage eval_compare"
 
-# Evaluation Analysis Command (PowerShell) - run from ml_pipeline root
-# Use this to compare a neural evaluation run against the training baseline
-eval_command = "c:\Users\Gica\neural-lod\.venv\Scripts\python.exe scripts\compare_eval_vs_train.py --eval data\Eval\eval_neural_20260323_004358.csv"
+# Stage 1: MERGE (Recursive search in Train_Runs - Default)
+pipeline_merge_all    = "c:\Users\Gica\neural-lod\.venv\Scripts\python.exe run_pipeline.py --stage merge"
+
+# Stage 1: MERGE (Targeted directory only - NEW)
+pipeline_merge_run6   = "c:\Users\Gica\neural-lod\.venv\Scripts\python.exe run_pipeline.py --stage merge --input-dir data/Train_Runs/run_6_Turbo"
+
+# Stage 2: LABEL (Reactive Oracle)
+pipeline_label        = "c:\Users\Gica\neural-lod\.venv\Scripts\python.exe run_pipeline.py --stage label"
+
+# Stage 3: EVAL COMPARE
+pipeline_eval_compare = "c:\Users\Gica\neural-lod\.venv\Scripts\python.exe run_pipeline.py --stage eval_compare --separate-plots"
+
+# Evaluation Analysis Command (Specific File)
+eval_command = "c:\Users\Gica\neural-lod\.venv\Scripts\python.exe scripts\compare_eval_vs_train.py --eval data\Eval\eval_neural_20260324_210831.csv"
+
+
+
+c:\Users\Gica\neural-lod\.venv\Scripts\python.exe run_pipeline.py --stage merge --input-dir data/Train_Runs/run_6_Turbo; c:\Users\Gica\neural-lod\.venv\Scripts\python.exe run_pipeline.py --stage label; c:\Users\Gica\neural-lod\.venv\Scripts\python.exe run_pipeline.py --stage eval_compare --separate-plots

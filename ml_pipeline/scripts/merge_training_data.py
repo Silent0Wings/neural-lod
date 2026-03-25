@@ -3,14 +3,24 @@ merge_training_data.py  Stage 1: merge raw Unity training CSVs into one file.
 """
 
 import glob
+from pathlib import Path
 import pandas as pd
 from config import (
-    TRAINING_RAW_PATTERN, TRAINING_MERGED,
+    TRAINING_RAW_PATTERN, TRAINING_MERGED, TRAINING_RAW_DIR,
     DROP_SLOW, SLOW_SPEED, FIX_HEADROOM, TARGET_FRAME_MS
 )
 
-def run():
-    files = sorted(glob.glob(TRAINING_RAW_PATTERN, recursive=True))
+def run(input_dir=None):
+    if input_dir:
+        # If user provides a directory, only look for CSVs inside that specific folder
+        search_path = Path(input_dir)
+        pattern = str(search_path / "training_data_*.csv")
+        print(f"Targeting specific directory: {search_path}")
+        files = sorted(glob.glob(pattern))
+    else:
+        # Default recursive behavior from config
+        files = sorted(glob.glob(TRAINING_RAW_PATTERN, recursive=True))
+    
     files = [f for f in files if "merged" not in f and "labeled" not in f]
 
     if not files:

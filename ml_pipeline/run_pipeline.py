@@ -99,6 +99,11 @@ def main():
         action="store_true",
         help="Save each plot in Stage 3 as an individual image"
     )
+    parser.add_argument(
+        "--input-dir",
+        type=str,
+        help="Specific directory for Stage 1 (merge) to pick CSVs from (overrides default recursive search)"
+    )
     args = parser.parse_args()
 
     print(f"\n{'#'*55}")
@@ -119,7 +124,7 @@ def main():
         else:
             results["merge"] = run_stage(
                 "1. Merge Training Data",
-                merge_training_data.run
+                lambda: merge_training_data.run(input_dir=args.input_dir)
             )
 
     if args.stage in ["all", "label"]:
