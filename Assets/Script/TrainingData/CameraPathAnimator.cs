@@ -16,7 +16,7 @@ public class Node
 }
 
 [System.Serializable]
-public class Path
+public class CamPath
 {
     public List<Node> nodes = new List<Node>();
 
@@ -54,7 +54,7 @@ public class CameraPathAnimator : MonoBehaviour
     public float nodeTimeout = 10.0f;
     private float _nodeTimer = 0f;
 
-    private Path _path = new Path();
+    private CamPath _path = new CamPath();
     private int _currentIndex = 0;
     private bool _isRunning = false;
 
