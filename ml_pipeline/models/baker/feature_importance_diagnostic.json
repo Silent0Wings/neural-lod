@@ -1,48 +1,49 @@
 {
-  "base_loss": 0.010335,
+  "base_loss": 0.003847,
   "top_feature": "sin_pitch",
-  "top_importance": 0.025499,
+  "top_importance": 0.009816,
   "near_zero_features": [
+    "sin_roll",
     "cos_roll"
   ],
   "negative_features": [],
   "ranked": [
     {
       "feature": "sin_pitch",
-      "importance": 0.025499
+      "importance": 0.009816
     },
     {
       "feature": "pos_x",
-      "importance": 0.024725
+      "importance": 0.008945
     },
     {
       "feature": "sin_yaw",
-      "importance": 0.016321
+      "importance": 0.005869
     },
     {
       "feature": "pos_z",
-      "importance": 0.015978
+      "importance": 0.005719
     },
     {
       "feature": "cos_pitch",
-      "importance": 0.015527
+      "importance": 0.005367
     },
     {
       "feature": "cos_yaw",
-      "importance": 0.012365
+      "importance": 0.00438
     },
     {
       "feature": "pos_y",
-      "importance": 0.005999
+      "importance": 0.002133
     },
     {
       "feature": "sin_roll",
-      "importance": 0.002305
+      "importance": 0.000811
     },
     {
       "feature": "cos_roll",
-      "importance": 0.000249
+      "importance": 0.000162
     }
   ],
-  "verdict": "OK: multiple features contribute meaningfully. Spatial signal is being used."
+  "verdict": "FAIL: all features near-zero importance. Model is not using input signal \u2014 likely predicting constant."
 }
