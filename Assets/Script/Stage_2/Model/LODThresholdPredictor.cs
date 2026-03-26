@@ -1,19 +1,15 @@
 using UnityEngine;
-using System.IO;
 using System.Diagnostics;
-// TODO: uncomment when com.unity.ai.inference is installed
-// using Unity.InferenceEngine;
+using Unity.InferenceEngine;
 
 // Loads ONNX baker model and runs inference from camera pose.
 // Normalizes input using baker_scaler_constants.json from StreamingAssets.
 // Writes lastInferenceDurationMs and lastPredictedThreshold for InferenceEvaluationLogger.
-// REQUIRES: com.unity.ai.inference package installed.
 [RequireComponent(typeof(InferenceEvaluationLogger))]
 public class LODThresholdPredictor : MonoBehaviour
 {
     [Header("Model")]
-    [Tooltip("ONNX model filename inside StreamingAssets")]
-    public string modelFileName = "lod_baker_model.onnx";
+    public ModelAsset onnxAsset;
 
     [Header("Scaler")]
     [Tooltip("Scaler JSON filename inside StreamingAssets")]
@@ -29,11 +25,10 @@ public class LODThresholdPredictor : MonoBehaviour
     public bool IsReady = false;
 
     // written each inference call, read by InferenceEvaluationLogger
-    [HideInInspector] public float   lastInferenceDurationMs = 0f;
-    [HideInInspector] public float   lastPredictedThreshold  = 0f;
+    [HideInInspector] public float lastInferenceDurationMs = 0f;
+    [HideInInspector] public float lastPredictedThreshold = 0f;
     [HideInInspector] public float[] lastPrediction;
 
-    // scaler constants, 9 features: pos_x, pos_y, pos_z, sin/cos of rot x/y/z
     private const int FEATURE_COUNT = 9;
 
     private static readonly string[] ExpectedFeatureNames = {
@@ -43,22 +38,21 @@ public class LODThresholdPredictor : MonoBehaviour
         "sin_roll",  "cos_roll"
     };
 
-    private float[] _scalerMean  = new float[FEATURE_COUNT];
+    private float[] _scalerMean = new float[FEATURE_COUNT];
     private float[] _scalerScale = new float[FEATURE_COUNT];
 
-    // TODO: uncomment when package is available
-    // ModelAsset _modelAsset;
-    // Worker _worker;
+    private Model _model;
+    private Worker _worker;
 
-    private Camera  _mainCam;
+    private Camera _mainCam;
     private Vector3 _lastPredictPos;
-    private float   _lastPredictTime;
+    private float _lastPredictTime;
     private Stopwatch _stopwatch = new Stopwatch();
 
     void Start()
     {
-        _mainCam         = Camera.main;
-        _lastPredictPos  = _mainCam != null ? _mainCam.transform.position : Vector3.zero;
+        _mainCam = Camera.main;
+        _lastPredictPos = _mainCam != null ? _mainCam.transform.position : Vector3.zero;
         _lastPredictTime = Time.time;
 
         LoadScalerConstants();
@@ -71,36 +65,33 @@ public class LODThresholdPredictor : MonoBehaviour
     {
         if (!IsReady || _mainCam == null) return;
 
-        Vector3 pos     = _mainCam.transform.position;
-        float   dist    = Vector3.Distance(pos, _lastPredictPos);
-        float   elapsed = Time.time - _lastPredictTime;
+        Vector3 pos = _mainCam.transform.position;
+        float dist = Vector3.Distance(pos, _lastPredictPos);
+        float elapsed = Time.time - _lastPredictTime;
 
         if (dist >= spatialDelta || elapsed >= maxInterval)
         {
             RunInference(pos, _mainCam.transform.eulerAngles);
-            _lastPredictPos  = pos;
+            _lastPredictPos = pos;
             _lastPredictTime = Time.time;
         }
     }
 
     void OnDestroy()
     {
-        // TODO: uncomment when package is available
-        // _worker?.Dispose();
+        _worker?.Dispose();
     }
 
     private void LoadModel()
     {
-        string modelPath = System.IO.Path.Combine(Application.streamingAssetsPath, modelFileName);
-        if (!File.Exists(modelPath))
+        if (onnxAsset == null)
         {
-            UnityEngine.Debug.LogError($"[LODThresholdPredictor] Model not found at: {modelPath}");
+            UnityEngine.Debug.LogError("[LODThresholdPredictor] onnxAsset is not assigned.");
             return;
         }
 
-        // TODO: uncomment when package is available
-        // _modelAsset = ModelLoader.Load(modelPath);
-        // _worker = new Worker(_modelAsset, BackendType.GPUCompute);
+        _model = ModelLoader.Load(onnxAsset);
+        _worker = new Worker(_model, BackendType.GPUCompute);
         UnityEngine.Debug.Log("[LODThresholdPredictor] Model loaded.");
     }
 
@@ -119,29 +110,21 @@ public class LODThresholdPredictor : MonoBehaviour
             Mathf.Cos(rotation.z * Mathf.Deg2Rad)
         };
 
-        // normalize using loaded scaler constants
         float[] features = new float[FEATURE_COUNT];
         for (int i = 0; i < FEATURE_COUNT; i++)
             features[i] = (raw[i] - _scalerMean[i]) / _scalerScale[i];
 
         _stopwatch.Restart();
 
-        // TODO: uncomment when package is available
-        // using var inputTensor = new Tensor<float>(new TensorShape(1, FEATURE_COUNT), features);
-        // _worker.Schedule(inputTensor);
-        // var rawOutput = _worker.PeekOutput();
-        // if (rawOutput is not Tensor<float> outputTensor) return;
-        // using var cpuTensor = outputTensor.ReadbackAndClone();
-        // lastPrediction = cpuTensor.ToReadOnlyArray();
-
+        using var inputTensor = new Tensor<float>(new TensorShape(1, FEATURE_COUNT), features);
+        _worker.Schedule(inputTensor);
+        var rawOutput = _worker.PeekOutput();
+        if (rawOutput is not Tensor<float> outputTensor) return;
+        using var cpuTensor = outputTensor.ReadbackAndClone();
+        lastPrediction = cpuTensor.DownloadToArray();
         _stopwatch.Stop();
         lastInferenceDurationMs = (float)_stopwatch.Elapsed.TotalMilliseconds;
 
-        // placeholder until model is deployed
-        if (lastPrediction == null)
-            lastPrediction = new float[] { 0.6f, 0.3f, 0.1f };
-
-        // write scalar summary for logger, use first threshold as representative value
         lastPredictedThreshold = lastPrediction.Length > 0 ? lastPrediction[0] : 0f;
     }
 
@@ -149,13 +132,13 @@ public class LODThresholdPredictor : MonoBehaviour
     {
         string path = System.IO.Path.Combine(Application.streamingAssetsPath, scalerJsonFileName);
 
-        if (!File.Exists(path))
+        if (!System.IO.File.Exists(path))
         {
             UnityEngine.Debug.LogError($"[LODThresholdPredictor] Scaler JSON not found at: {path}");
             return;
         }
 
-        string     json = File.ReadAllText(path);
+        string json = System.IO.File.ReadAllText(path);
         ScalerData data = JsonUtility.FromJson<ScalerData>(json);
 
         if (data.mean == null || data.mean.Length != FEATURE_COUNT)
@@ -174,11 +157,10 @@ public class LODThresholdPredictor : MonoBehaviour
 
         if (data.feature_names == null || data.feature_names.Length != FEATURE_COUNT)
         {
-            UnityEngine.Debug.LogError($"[LODThresholdPredictor] feature_names mismatch.");
+            UnityEngine.Debug.LogError("[LODThresholdPredictor] feature_names mismatch.");
             return;
         }
 
-        // verify feature order matches training exactly
         for (int i = 0; i < FEATURE_COUNT; i++)
         {
             if (data.feature_names[i] != ExpectedFeatureNames[i])
@@ -189,7 +171,6 @@ public class LODThresholdPredictor : MonoBehaviour
             }
         }
 
-        // guard against zero scale divide
         for (int i = 0; i < FEATURE_COUNT; i++)
         {
             if (Mathf.Approximately(data.scale[i], 0f))
@@ -199,7 +180,7 @@ public class LODThresholdPredictor : MonoBehaviour
             }
         }
 
-        _scalerMean  = data.mean;
+        _scalerMean = data.mean;
         _scalerScale = data.scale;
 
         IsReady = true;
@@ -210,7 +191,7 @@ public class LODThresholdPredictor : MonoBehaviour
     private class ScalerData
     {
         public string[] feature_names;
-        public float[]  mean;
-        public float[]  scale;
+        public float[] mean;
+        public float[] scale;
     }
 }
