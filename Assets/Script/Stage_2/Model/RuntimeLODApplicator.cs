@@ -19,8 +19,14 @@ public class RuntimeLODApplicator : MonoBehaviour
 
     void Start()
     {
+        if (predictor == null)
+            predictor = GetComponent<LODThresholdPredictor>();
+
+        if (predictor == null)
+            UnityEngine.Debug.LogError("[RuntimeLODApplicator] No LODThresholdPredictor found.");
+
         lodGroups = Object.FindObjectsByType<LODGroup>(FindObjectsSortMode.None);
-        Debug.Log($"[RuntimeLODApplicator] Found {lodGroups.Length} LODGroups to manage.");
+        UnityEngine.Debug.Log($"[RuntimeLODApplicator] Found {lodGroups.Length} LODGroups.");
     }
 
     void LateUpdate()
@@ -63,6 +69,18 @@ public class RuntimeLODApplicator : MonoBehaviour
             lods[i].screenRelativeTransitionHeight = 0.001f;
         }
 
+        // final guard before SetLODs
+        bool valid = true;
+        for (int i = 1; i < lods.Length; i++)
+        {
+            if (lods[i].screenRelativeTransitionHeight >= lods[i - 1].screenRelativeTransitionHeight)
+            {
+                valid = false;
+                break;
+            }
+        }
+        if (!valid) return;
+
         group.SetLODs(lods);
         group.RecalculateBounds();
     }
@@ -77,14 +95,22 @@ public class RuntimeLODApplicator : MonoBehaviour
             result[i] = Mathf.Clamp01(raw[i]);
         }
 
-        // enforce monotonically decreasing
+        // enforce strictly decreasing from index 0 downward
+        // start from highest LOD and work down
         for (int i = 1; i < result.Length; i++)
         {
+            float maxAllowed = result[i - 1] - minThresholdGap;
             if (result[i] >= result[i - 1])
-            {
-                result[i] = result[i - 1] - minThresholdGap;
-                if (result[i] < 0f) result[i] = 0f;
-            }
+                result[i] = Mathf.Max(0f, maxAllowed);
+        }
+
+        // second pass — ensure no value went negative and broke order
+        for (int i = result.Length - 1; i >= 1; i--)
+        {
+            if (result[i] < 0f) result[i] = 0f;
+            if (result[i - 1] <= result[i])
+                result[i - 1] = result[i] + minThresholdGap;
+            result[i - 1] = Mathf.Clamp01(result[i - 1]);
         }
 
         return result;

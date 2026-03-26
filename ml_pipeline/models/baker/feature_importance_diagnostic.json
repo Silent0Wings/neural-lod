@@ -1,7 +1,7 @@
 {
-  "base_loss": 0.003847,
+  "base_loss": 0.004062,
   "top_feature": "sin_pitch",
-  "top_importance": 0.009816,
+  "top_importance": 0.009255,
   "near_zero_features": [
     "sin_roll",
     "cos_roll"
@@ -10,39 +10,39 @@
   "ranked": [
     {
       "feature": "sin_pitch",
-      "importance": 0.009816
+      "importance": 0.009255
     },
     {
       "feature": "pos_x",
-      "importance": 0.008945
+      "importance": 0.008758
     },
     {
       "feature": "sin_yaw",
-      "importance": 0.005869
+      "importance": 0.005702
     },
     {
       "feature": "pos_z",
-      "importance": 0.005719
+      "importance": 0.00559
     },
     {
       "feature": "cos_pitch",
-      "importance": 0.005367
+      "importance": 0.005368
     },
     {
       "feature": "cos_yaw",
-      "importance": 0.00438
+      "importance": 0.004585
     },
     {
       "feature": "pos_y",
-      "importance": 0.002133
+      "importance": 0.002041
     },
     {
       "feature": "sin_roll",
-      "importance": 0.000811
+      "importance": 0.000678
     },
     {
       "feature": "cos_roll",
-      "importance": 0.000162
+      "importance": 0.000105
     }
   ],
   "verdict": "FAIL: all features near-zero importance. Model is not using input signal \u2014 likely predicting constant."

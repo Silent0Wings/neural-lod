@@ -1,6 +1,6 @@
 {
-  "pred_mean": 0.6036,
-  "pred_std": 0.4725,
+  "pred_mean": 0.5964,
+  "pred_std": 0.4743,
   "pred_min": 0.0,
   "pred_max": 1.0,
   "pred_range": 1.0,
@@ -10,5 +10,5 @@
     0.6667,
     1.0
   ],
-  "verdict": "OK: predictions span a reasonable range (mean=0.604, std=0.4725)."
+  "verdict": "OK: predictions span a reasonable range (mean=0.596, std=0.4743)."
 }

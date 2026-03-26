@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Diagnostics;
 using UnityEngine;
@@ -8,24 +7,26 @@ using UnityEngine.Rendering;
 // Attach to the same GameObject as LODThresholdPredictor and RuntimeLODApplicator
 // Records per frame performance metrics during neural LOD inference
 // Outputs CSV to Application.persistentDataPath/InferenceEval/
+// Camera position and rotation are logged so eval rows can be joined
+// against grid_points.csv and labels.csv for oracle comparison.
 [RequireComponent(typeof(LODThresholdPredictor))]
 [RequireComponent(typeof(RuntimeLODApplicator))]
 public class InferenceEvaluationLogger : MonoBehaviour
 {
-    // run label written to every row so multiple runs can be compared in one CSV
     [Header("Run Config")]
     public string runLabel = "neural_baker";
     public bool autoStart = true;
 
-    // how many frames to skip before logging starts, avoids GPU warmup zeros
+    [Header("Camera")]
+    [Tooltip("Camera to log pose from. Defaults to Camera.main if null.")]
+    public Camera targetCamera;
+
     [Header("Warmup")]
     public int warmupFrames = 64;
 
-    // max frames to log, 0 means log until manually stopped
     [Header("Capture")]
     public int maxFrames = 0;
 
-    // flush buffer to disk every N rows, avoids data loss on crash
     [Header("IO")]
     public int flushInterval = 120;
 
@@ -38,24 +39,18 @@ public class InferenceEvaluationLogger : MonoBehaviour
     private string outputPath;
 
     private FrameTiming[] frameTimings = new FrameTiming[1];
-
-    // reference to predictor so we can read last predicted threshold and inference time
     private LODThresholdPredictor predictor;
 
-    // stopwatch for inference call duration measurement
-    private Stopwatch inferenceWatch = new Stopwatch();
-
-    // last inference duration in ms, set by predictor wrapper
-    [HideInInspector]
-    public float lastInferenceDurationMs = 0f;
-
-    // last predicted threshold applied, set by predictor
-    [HideInInspector]
-    public float lastPredictedThreshold = 0f;
+    // unused public fields kept for Inspector visibility only
+    [HideInInspector] public float lastInferenceDurationMs = 0f;
+    [HideInInspector] public float lastPredictedThreshold  = 0f;
 
     void Awake()
     {
         predictor = GetComponent<LODThresholdPredictor>();
+
+        if (targetCamera == null)
+            targetCamera = Camera.main;
     }
 
     void Start()
@@ -70,12 +65,14 @@ public class InferenceEvaluationLogger : MonoBehaviour
         Directory.CreateDirectory(folder);
 
         string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-        string filename = $"inference_eval_{runLabel}_{timestamp}.csv";
+        string filename  = $"inference_eval_{runLabel}_{timestamp}.csv";
         outputPath = System.IO.Path.Combine(folder, filename);
 
         writer = new StreamWriter(outputPath, append: false);
 
-        // write header
+        // header matches training data schema for oracle join
+        // cam_pos_x/y/z match grid_points.x/y/z (nearest neighbour join)
+        // cam_rot_x/y/z match labels.rot_x/y/z (nearest rotation join)
         writer.WriteLine(
             "run_label," +
             "frame," +
@@ -84,13 +81,19 @@ public class InferenceEvaluationLogger : MonoBehaviour
             "fps," +
             "inference_duration_ms," +
             "predicted_threshold," +
-            "lod_bias_applied"
+            "lod_bias_applied," +
+            "cam_pos_x," +
+            "cam_pos_y," +
+            "cam_pos_z," +
+            "cam_rot_x," +
+            "cam_rot_y," +
+            "cam_rot_z"
         );
 
         FrameTimingManager.CaptureFrameTimings();
-        isLogging = true;
-        frameCount = 0;
-        warmupCounter = 0;
+        isLogging      = true;
+        frameCount     = 0;
+        warmupCounter  = 0;
 
         UnityEngine.Debug.Log($"[InferenceEvaluationLogger] Logging started -> {outputPath}");
     }
@@ -107,21 +110,19 @@ public class InferenceEvaluationLogger : MonoBehaviour
             writer = null;
         }
 
-        UnityEngine.Debug.Log($"[InferenceEvaluationLogger] Logging stopped. Frames captured: {frameCount}");
+        UnityEngine.Debug.Log($"[InferenceEvaluationLogger] Logging stopped. Frames: {frameCount}");
     }
 
     void LateUpdate()
     {
         if (!isLogging) return;
 
-        // skip warmup frames
         if (warmupCounter < warmupFrames)
         {
             warmupCounter++;
             return;
         }
 
-        // stop if max frames reached
         if (maxFrames > 0 && frameCount >= maxFrames)
         {
             StopLogging();
@@ -139,15 +140,16 @@ public class InferenceEvaluationLogger : MonoBehaviour
             cpuMs = (float)frameTimings[0].cpuFrameTime;
             gpuMs = (float)frameTimings[0].gpuFrameTime;
 
-            // guard against GPU warmup overflow values
             if (gpuMs > 500f || gpuMs < 0f) gpuMs = 0f;
             if (cpuMs > 500f || cpuMs < 0f) cpuMs = 0f;
         }
 
-        float fps = Time.deltaTime > 0f ? 1f / Time.deltaTime : 0f;
-
-        // current lodBias as applied by RuntimeLODApplicator
+        float fps            = Time.deltaTime > 0f ? 1f / Time.deltaTime : 0f;
         float lodBiasApplied = QualitySettings.lodBias;
+
+        // camera pose — used to join against grid_points.csv and labels.csv
+        Vector3 pos = targetCamera != null ? targetCamera.transform.position    : Vector3.zero;
+        Vector3 rot = targetCamera != null ? targetCamera.transform.eulerAngles : Vector3.zero;
 
         writer.WriteLine(
             $"{runLabel}," +
@@ -155,14 +157,19 @@ public class InferenceEvaluationLogger : MonoBehaviour
             $"{cpuMs:F4}," +
             $"{gpuMs:F4}," +
             $"{fps:F4}," +
-            $"{lastInferenceDurationMs:F4}," +
-            $"{lastPredictedThreshold:F6}," +
-            $"{lodBiasApplied:F6}"
+            $"{predictor.lastInferenceDurationMs:F4}," +
+            $"{predictor.lastPredictedThreshold:F6}," +
+            $"{lodBiasApplied:F6}," +
+            $"{pos.x:F4}," +
+            $"{pos.y:F4}," +
+            $"{pos.z:F4}," +
+            $"{rot.x:F4}," +
+            $"{rot.y:F4}," +
+            $"{rot.z:F4}"
         );
 
         frameCount++;
 
-        // periodic flush
         if (frameCount % flushInterval == 0)
             writer.Flush();
     }
