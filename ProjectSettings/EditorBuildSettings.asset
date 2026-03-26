@@ -6,14 +6,17 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/Scenes/Menu.unity
+    path: Assets/Scenes/UI/Menu.unity
     guid: 39ea64a0e78f8054198f6c2ce2770eca
   - enabled: 1
-    path: Assets/Scenes/Training/animated_Cam_Capture_Data.unity
+    path: Assets/Scenes/Stage_1/Training/animated_Cam_Capture_Data.unity
     guid: 146da8d359949fb47a793a6f46a8766f
   - enabled: 1
-    path: Assets/Scenes/Model/Evaluation_Mode.unity
+    path: Assets/Scenes/Stage_1/Model/Evaluation_Mode.unity
     guid: 0bc8a5816629e9f44ae8566c41ffa709
+  - enabled: 1
+    path: Assets/Scenes/Stage_2/Train/Train_Stage_2.unity
+    guid: 6268d3875ae8c7942a65dc4aeffa87f8
   m_configObjects:
     com.unity.adaptivePerformance.basic.provider_settings: {fileID: 11400000, guid: 724e6412fe051304281b791c955612be, type: 2}
     com.unity.adaptiveperformance.loader_settings: {fileID: 11400000, guid: bbfc62b5f7f193d46b961871ac413929, type: 2}
