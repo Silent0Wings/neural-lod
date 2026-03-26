@@ -1,0 +1,14 @@
+{
+  "pred_mean": 0.5847,
+  "pred_std": 0.4341,
+  "pred_min": 0.0,
+  "pred_max": 1.0,
+  "pred_range": 1.0,
+  "true_unique": [
+    0.0,
+    0.3333,
+    0.6667,
+    1.0
+  ],
+  "verdict": "OK: predictions span a reasonable range (mean=0.585, std=0.4341)."
+}

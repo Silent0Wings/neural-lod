@@ -1,0 +1,46 @@
+{
+  "base_loss": 0.039325,
+  "top_feature": "pos_x",
+  "top_importance": 0.165727,
+  "near_zero_features": [],
+  "negative_features": [],
+  "ranked": [
+    {
+      "feature": "pos_x",
+      "importance": 0.165727
+    },
+    {
+      "feature": "sin_pitch",
+      "importance": 0.160176
+    },
+    {
+      "feature": "pos_z",
+      "importance": 0.10961
+    },
+    {
+      "feature": "sin_yaw",
+      "importance": 0.099742
+    },
+    {
+      "feature": "cos_pitch",
+      "importance": 0.095693
+    },
+    {
+      "feature": "cos_yaw",
+      "importance": 0.081425
+    },
+    {
+      "feature": "pos_y",
+      "importance": 0.04622
+    },
+    {
+      "feature": "sin_roll",
+      "importance": 0.016403
+    },
+    {
+      "feature": "cos_roll",
+      "importance": 0.002308
+    }
+  ],
+  "verdict": "OK: multiple features contribute meaningfully. Spatial signal is being used."
+}
