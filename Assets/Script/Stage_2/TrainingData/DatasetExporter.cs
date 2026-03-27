@@ -5,6 +5,7 @@
 using UnityEngine;
 using System.IO;
 using System.Text;
+using System.Globalization;
 
 public class DatasetExporter : MonoBehaviour
 {
@@ -19,10 +20,21 @@ public class DatasetExporter : MonoBehaviour
         outputDir = Path.Combine(Application.persistentDataPath, subfolder);
         Directory.CreateDirectory(outputDir);
 
-        ExportLodObjects(session);
-        ExportGridPoints(session);
-        ExportSampleRecords(session);
-        ExportLabels(session);
+        // force invariant culture for CSV float formatting (avoid comma decimals on EU locales)
+        var prevCulture = System.Threading.Thread.CurrentThread.CurrentCulture;
+        System.Threading.Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
+
+        try
+        {
+            ExportLodObjects(session);
+            ExportGridPoints(session);
+            ExportSampleRecords(session);
+            ExportLabels(session);
+        }
+        finally
+        {
+            System.Threading.Thread.CurrentThread.CurrentCulture = prevCulture;
+        }
 
         Debug.Log($"[DatasetExporter] Exported to: {outputDir}");
     }
@@ -66,14 +78,17 @@ public class DatasetExporter : MonoBehaviour
         // stream to avoid large string allocations
         using (StreamWriter writer = new StreamWriter(path, false))
         {
-            writer.WriteLine("point_id,rot_x,rot_y,rot_z,lod_level,mean_gpu_ms,mean_cpu_ms,mean_fps");
+            writer.WriteLine("point_id,rot_x,rot_y,rot_z,lod_level,mean_gpu_ms,mean_cpu_ms,mean_fps," +
+                             "triangle_count,visible_renderer_count,screen_coverage,draw_call_count");
 
             foreach (SampleRecord r in session.samples)
             {
                 writer.WriteLine($"{r.pointId}," +
                                  $"{r.rotationAngles.x},{r.rotationAngles.y},{r.rotationAngles.z}," +
                                  $"{r.lodLevel}," +
-                                 $"{r.meanGpuTimeMs},{r.meanCpuTimeMs},{r.meanFps}");
+                                 $"{r.meanGpuTimeMs},{r.meanCpuTimeMs},{r.meanFps}," +
+                                 $"{r.triangleCount},{r.visibleRendererCount}," +
+                                 $"{r.screenCoverage:F6},{r.drawCallCount}");
             }
         }
     }

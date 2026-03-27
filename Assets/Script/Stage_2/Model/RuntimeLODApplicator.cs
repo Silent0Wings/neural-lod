@@ -46,7 +46,8 @@ public class RuntimeLODApplicator : MonoBehaviour
         // apply to all LODGroups
         foreach (LODGroup group in lodGroups)
         {
-            ApplyToGroup(group, sanitized);
+            if (group != null)
+                ApplyToGroup(group, sanitized);
         }
 
         lastAppliedThresholds = (float[])sanitized.Clone();
@@ -79,7 +80,12 @@ public class RuntimeLODApplicator : MonoBehaviour
                 break;
             }
         }
-        if (!valid) return;
+        if (!valid)
+        {
+            UnityEngine.Debug.LogWarning($"[RuntimeLODApplicator] Skipping SetLODs on '{group.gameObject.name}': " +
+                                         "sanitized thresholds are not strictly decreasing.");
+            return;
+        }
 
         group.SetLODs(lods);
         group.RecalculateBounds();

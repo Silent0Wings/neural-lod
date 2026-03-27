@@ -15,7 +15,7 @@ using UnityEngine.UI;
 [RequireComponent(typeof(LODCollector))]
 [RequireComponent(typeof(BoundingBoxGridGenerator))]
 [RequireComponent(typeof(RotationSampler))]
-[RequireComponent(typeof(LODMetricsRecorder))]
+[RequireComponent(typeof(LODMetricsRecorder))] // profiler recorders managed by OnEnable/OnDisable in LODMetricsRecorder
 [RequireComponent(typeof(ThresholdLabeler))]
 [RequireComponent(typeof(DatasetExporter))]
 public class BakerOrchestrator : MonoBehaviour
@@ -41,6 +41,9 @@ public class BakerOrchestrator : MonoBehaviour
     // session
     ProfilingSession session;
 
+    // re-entry guard
+    private bool _isRunning = false;
+
     void Awake()
     {
         collector = GetComponent<LODCollector>();
@@ -56,17 +59,24 @@ public class BakerOrchestrator : MonoBehaviour
 
     void Start()
     {
+        Application.runInBackground = true;
         if (autoStart)
             StartBaking();
     }
 
     public void StartBaking()
     {
+        if (_isRunning)
+        {
+            Debug.LogWarning("[BakerOrchestrator] Pipeline already running. Ignoring duplicate call.");
+            return;
+        }
         StartCoroutine(RunPipeline());
     }
 
     IEnumerator RunPipeline()
     {
+        _isRunning = true;
         Debug.Log("[BakerOrchestrator] === Pipeline Start ===");
 
         // step 1: collect LODs
@@ -100,7 +110,9 @@ public class BakerOrchestrator : MonoBehaviour
             {
                 if (progressionSlider != null)
                     progressionSlider.value = sampler.progress;
-                Debug.Log($"[BakerOrchestrator] Sampling progress: {sampler.progress * 100f:F1}%");
+                Debug.Log($"[BakerOrchestrator] Sampling progress: {sampler.progress * 100f:F1}% " +
+                          $"({(int)(sampler.progress * gridGen.gridPoints.Count * sampler.pitchAngles.Length * sampler.yawAngles.Length * sampler.rollAngles.Length)}" +
+                          $"/{gridGen.gridPoints.Count * sampler.pitchAngles.Length * sampler.yawAngles.Length * sampler.rollAngles.Length} positions)");
             }
         }
 
@@ -113,6 +125,14 @@ public class BakerOrchestrator : MonoBehaviour
         // step 5: export
         exporter.Export(session);
 
+        _isRunning = false;
         Debug.Log("[BakerOrchestrator] === Pipeline Complete ===");
+
+        // EXIT after files are saved
+        #if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+        #else
+        Application.Quit();
+        #endif
     }
 }

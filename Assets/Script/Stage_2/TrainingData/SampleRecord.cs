@@ -12,4 +12,10 @@ public class SampleRecord
     public float meanGpuTimeMs;
     public float meanCpuTimeMs;
     public float meanFps;
+
+    // scene complexity features added for fix 1
+    public int   triangleCount;
+    public int   visibleRendererCount;
+    public float screenCoverage;
+    public int   drawCallCount;
 }

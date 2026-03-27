@@ -1,9 +1,9 @@
 // File: RotationSampler.cs
 // Orchestrates the full profiling capture:
 //   For each GridPoint:
-//     For each rotation (discrete Euler steps):
-//       For each LOD level:
-//         Delegate to LODMetricsRecorder to capture a SampleRecord.
+//     For each rotation:
+//       WarmUpPosition once (camera move + GPU stabilize)
+//       CaptureAllLods (mini-warmup between each LOD level)
 // Runs as a coroutine so Unity can render frames between captures.
 using UnityEngine;
 using System.Collections;
@@ -12,9 +12,13 @@ using System.Collections.Generic;
 public class RotationSampler : MonoBehaviour
 {
     [Header("Rotation Coverage")]
-    public float[] pitchAngles = { -60f, 0f, 60f };       // 3
-    public float[] yawAngles = { 0f, 90f, 180f, 270f };  // 4
-    public float[] rollAngles = { -30f, 0f, 30f };         // 3
+    // player realistic angles only
+    // pitch: slight down to slight up, no sky facing extremes
+    // yaw: 8 cardinal and diagonal directions
+    // roll: fixed at 0 players do not roll
+    public float[] pitchAngles = { -15f, 0f, 15f };
+    public float[] yawAngles   = { 0f, 45f, 90f, 135f, 180f, 225f, 270f, 315f };
+    public float[] rollAngles  = { 0f };
 
     [Header("LOD Levels to Sample")]
     [Tooltip("Max LOD index to sweep. -1 = auto-detect from first LODGroup.")]
@@ -31,9 +35,8 @@ public class RotationSampler : MonoBehaviour
     // results
     [HideInInspector] public List<SampleRecord> allRecords = new List<SampleRecord>();
     [HideInInspector] public bool isRunning = false;
-    [HideInInspector] public float progress = 0f; // 0..1
+    [HideInInspector] public float progress = 0f;
 
-    /// starts the full sampling sweep
     public void StartSampling()
     {
         StartCoroutine(RunSampling());
@@ -44,34 +47,38 @@ public class RotationSampler : MonoBehaviour
         isRunning = true;
         allRecords.Clear();
 
-        // detect max LOD level if auto
         int lodCount = DetectLodLevelCount();
         if (maxLodLevel >= 0)
             lodCount = Mathf.Min(lodCount, maxLodLevel + 1);
 
-        // build rotation list
         List<Vector3> rotations = BuildRotationList();
 
-        int totalSteps = gridPoints.Count * rotations.Count * lodCount;
-        int currentStep = 0;
+        // total = points x rotations only, lod sweep is inside a single coroutine call per position
+        int totalPositions = gridPoints.Count * rotations.Count;
+        int currentPosition = 0;
 
         Debug.Log($"[RotationSampler] Starting: {gridPoints.Count} points, " +
-                  $"{rotations.Count} rotations, {lodCount} LOD levels = {totalSteps} total captures.");
+                  $"{rotations.Count} rotations, {lodCount} LOD levels. " +
+                  $"Total positions: {totalPositions}");
 
         foreach (GridPoint point in gridPoints)
         {
             foreach (Vector3 rot in rotations)
             {
-                for (int lod = 0; lod < lodCount; lod++)
-                {
-                    yield return StartCoroutine(
-                        metricsRecorder.CaptureMetrics(point, rot, lod, profilingCamera)
-                    );
+                // warmup once for this (point, rotation)
+                yield return StartCoroutine(
+                    metricsRecorder.WarmUpPosition(point, rot, profilingCamera)
+                );
 
-                    allRecords.Add(metricsRecorder.lastRecord);
-                    currentStep++;
-                    progress = (float)currentStep / totalSteps;
-                }
+                // capture all LOD levels with mini-warmup between each
+                yield return StartCoroutine(
+                    metricsRecorder.CaptureAllLods(point, rot, lodCount, profilingCamera)
+                );
+
+                allRecords.AddRange(metricsRecorder.lodRecords);
+
+                currentPosition++;
+                progress = (float)currentPosition / totalPositions;
             }
         }
 
@@ -84,15 +91,9 @@ public class RotationSampler : MonoBehaviour
         List<Vector3> rotations = new List<Vector3>();
 
         foreach (float pitch in pitchAngles)
-        {
             foreach (float yaw in yawAngles)
-            {
                 foreach (float roll in rollAngles)
-                {
                     rotations.Add(new Vector3(pitch, yaw, roll));
-                }
-            }
-        }
 
         return rotations;
     }

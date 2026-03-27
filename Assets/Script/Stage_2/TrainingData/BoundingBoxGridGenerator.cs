@@ -23,6 +23,9 @@ public class BoundingBoxGridGenerator : MonoBehaviour
     [Tooltip("Max raycast distance when searching for ground.")]
     public float raycastRange = 200f;
 
+    [Tooltip("Layer(s) the ground-snap raycast can hit. Set to 'Ground' to ignore trees/foliage.")]
+    public LayerMask groundLayer = ~0; // default: everything; set to Ground in Inspector
+
     [Header("Gizmos")]
     public bool drawGizmos = true;
     public float gizmoSphereSize = 0.2f;
@@ -60,6 +63,7 @@ public class BoundingBoxGridGenerator : MonoBehaviour
 
         int id = 0;
         int snappedCount = 0;
+        int missedCount = 0;
 
         // loop order: ix -> iz -> iy so layer 0 is always processed first per column
         for (int ix = 0; ix < resolutionX; ix++)
@@ -85,10 +89,15 @@ public class BoundingBoxGridGenerator : MonoBehaviour
                     {
                         // layer 0: raycast down to find ground
                         Vector3 rayOrigin = center + Vector3.up * raycastRange * 0.5f;
-                        if (Physics.Raycast(rayOrigin, Vector3.down, out RaycastHit hit, raycastRange))
+                        if (Physics.Raycast(rayOrigin, Vector3.down, out RaycastHit hit, raycastRange, groundLayer))
                         {
                             center.y = hit.point.y + heightAboveGround;
                             snappedCount++;
+                        }
+                        else
+                        {
+                            // no ground hit — keep raw grid center y
+                            missedCount++;
                         }
                         groundHeights[(ix, iz)] = center.y;
                     }
@@ -131,6 +140,12 @@ public class BoundingBoxGridGenerator : MonoBehaviour
                   $"in bounds {computedBounds}. " +
                   $"Raycast snapped={snappedCount}/{resolutionX * resolutionZ}. " +
                   $"Layer spacing={layerSpacing:F2}m.");
+
+        if (missedCount > 0)
+        {
+            Debug.LogWarning($"[GridGenerator] {missedCount}/{resolutionX * resolutionZ} columns had no ground hit. " +
+                             "Those points use raw grid center height. Check colliders or increase raycastRange.");
+        }
     }
 
     Bounds ComputeAggregateBounds(LODGroup[] groups)
@@ -174,18 +189,18 @@ public class BoundingBoxGridGenerator : MonoBehaviour
         }
 
         // draw bounding box corners
-        Gizmos.color = Color.yellow;
-        Vector3 min = computedBounds.min;
-        Vector3 max = computedBounds.max;
+        Gizmos.color = Color.red;
+        Vector3 bmin = computedBounds.min;
+        Vector3 bmax = computedBounds.max;
 
-        Gizmos.DrawSphere(new Vector3(min.x, min.y, min.z), gizmoBoundsSize);
-        Gizmos.DrawSphere(new Vector3(min.x, min.y, max.z), gizmoBoundsSize);
-        Gizmos.DrawSphere(new Vector3(min.x, max.y, min.z), gizmoBoundsSize);
-        Gizmos.DrawSphere(new Vector3(min.x, max.y, max.z), gizmoBoundsSize);
-        Gizmos.DrawSphere(new Vector3(max.x, min.y, min.z), gizmoBoundsSize);
-        Gizmos.DrawSphere(new Vector3(max.x, min.y, max.z), gizmoBoundsSize);
-        Gizmos.DrawSphere(new Vector3(max.x, max.y, min.z), gizmoBoundsSize);
-        Gizmos.DrawSphere(new Vector3(max.x, max.y, max.z), gizmoBoundsSize);
+        Gizmos.DrawSphere(new Vector3(bmin.x, bmin.y, bmin.z), gizmoBoundsSize);
+        Gizmos.DrawSphere(new Vector3(bmin.x, bmin.y, bmax.z), gizmoBoundsSize);
+        Gizmos.DrawSphere(new Vector3(bmin.x, bmax.y, bmin.z), gizmoBoundsSize);
+        Gizmos.DrawSphere(new Vector3(bmin.x, bmax.y, bmax.z), gizmoBoundsSize);
+        Gizmos.DrawSphere(new Vector3(bmax.x, bmin.y, bmin.z), gizmoBoundsSize);
+        Gizmos.DrawSphere(new Vector3(bmax.x, bmin.y, bmax.z), gizmoBoundsSize);
+        Gizmos.DrawSphere(new Vector3(bmax.x, bmax.y, bmin.z), gizmoBoundsSize);
+        Gizmos.DrawSphere(new Vector3(bmax.x, bmax.y, bmax.z), gizmoBoundsSize);
 
         // draw bounding box wireframe
         Gizmos.color = new Color(1f, 1f, 0f, 0.3f);

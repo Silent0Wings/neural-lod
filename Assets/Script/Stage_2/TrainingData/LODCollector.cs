@@ -28,8 +28,8 @@ public class LODCollector : MonoBehaviour
         {
             LODObjectInfo info = new LODObjectInfo();
 
-            // stable id from scene name plus instance id
-            info.referenceId = sceneName + ":" + group.gameObject.GetInstanceID();
+            // stable id from scene name plus hierarchy path (survives Play restarts)
+            info.referenceId = sceneName + ":" + GetHierarchyPath(group.gameObject);
 
             LOD[] lods = group.GetLODs();
             info.rendererCount = 0;
@@ -45,5 +45,17 @@ public class LODCollector : MonoBehaviour
         }
 
         Debug.Log($"[LODCollector] Found {collectedObjects.Count} LODGroups in scene '{sceneName}'.");
+    }
+
+    static string GetHierarchyPath(GameObject go)
+    {
+        string path = go.name;
+        Transform t = go.transform.parent;
+        while (t != null)
+        {
+            path = t.name + "/" + path;
+            t = t.parent;
+        }
+        return path;
     }
 }

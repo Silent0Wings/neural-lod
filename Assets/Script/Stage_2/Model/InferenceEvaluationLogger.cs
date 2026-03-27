@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Diagnostics;
+using System.Globalization;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -30,16 +31,22 @@ public class InferenceEvaluationLogger : MonoBehaviour
     [Header("IO")]
     public int flushInterval = 120;
 
+    [Header("Exit")]
+    [Tooltip("Quit the application after maxFrames is reached and logging is saved.")]
+    public bool quitOnComplete = true;
+
     // internal state
     private bool isLogging = false;
     private int frameCount = 0;
     private int warmupCounter = 0;
+    private bool _quitting = false;
 
     private StreamWriter writer;
     private string outputPath;
 
     private FrameTiming[] frameTimings = new FrameTiming[1];
     private LODThresholdPredictor predictor;
+    private float _lastLoggedThreshold = -1f;
 
     // unused public fields kept for Inspector visibility only
     [HideInInspector] public float lastInferenceDurationMs = 0f;
@@ -82,6 +89,7 @@ public class InferenceEvaluationLogger : MonoBehaviour
             "inference_duration_ms," +
             "predicted_threshold," +
             "lod_bias_applied," +
+            "threshold_changed," +
             "cam_pos_x," +
             "cam_pos_y," +
             "cam_pos_z," +
@@ -110,7 +118,7 @@ public class InferenceEvaluationLogger : MonoBehaviour
             writer = null;
         }
 
-        UnityEngine.Debug.Log($"[InferenceEvaluationLogger] Logging stopped. Frames: {frameCount}");
+        UnityEngine.Debug.Log($"[InferenceEvaluationLogger] Logging stopped. Frames: {frameCount}. Output: {outputPath}");
     }
 
     void LateUpdate()
@@ -126,6 +134,12 @@ public class InferenceEvaluationLogger : MonoBehaviour
         if (maxFrames > 0 && frameCount >= maxFrames)
         {
             StopLogging();
+            if (quitOnComplete && !_quitting)
+            {
+                _quitting = true;
+                UnityEngine.Debug.Log($"[InferenceEvaluationLogger] Capture complete ({frameCount} frames). Exiting application.");
+                QuitApplication();
+            }
             return;
         }
 
@@ -151,22 +165,29 @@ public class InferenceEvaluationLogger : MonoBehaviour
         Vector3 pos = targetCamera != null ? targetCamera.transform.position    : Vector3.zero;
         Vector3 rot = targetCamera != null ? targetCamera.transform.eulerAngles : Vector3.zero;
 
-        writer.WriteLine(
-            $"{runLabel}," +
-            $"{frameCount}," +
-            $"{cpuMs:F4}," +
-            $"{gpuMs:F4}," +
-            $"{fps:F4}," +
-            $"{predictor.lastInferenceDurationMs:F4}," +
-            $"{predictor.lastPredictedThreshold:F6}," +
-            $"{lodBiasApplied:F6}," +
-            $"{pos.x:F4}," +
-            $"{pos.y:F4}," +
-            $"{pos.z:F4}," +
-            $"{rot.x:F4}," +
-            $"{rot.y:F4}," +
-            $"{rot.z:F4}"
-        );
+        float currentThreshold = predictor.lastPredictedThreshold;
+        int thresholdChanged   = (_lastLoggedThreshold >= 0f &&
+                                  Mathf.Abs(currentThreshold - _lastLoggedThreshold) > 0.0001f) ? 1 : 0;
+        _lastLoggedThreshold = currentThreshold;
+
+        writer.WriteLine(string.Format(CultureInfo.InvariantCulture,
+            "{0},{1},{2:F4},{3:F4},{4:F4},{5:F4},{6:F6},{7:F6},{8},{9:F4},{10:F4},{11:F4},{12:F4},{13:F4},{14:F4}",
+            runLabel,
+            frameCount,
+            cpuMs,
+            gpuMs,
+            fps,
+            predictor.lastInferenceDurationMs,
+            currentThreshold,
+            lodBiasApplied,
+            thresholdChanged,
+            pos.x,
+            pos.y,
+            pos.z,
+            rot.x,
+            rot.y,
+            rot.z
+        ));
 
         frameCount++;
 
@@ -177,5 +198,14 @@ public class InferenceEvaluationLogger : MonoBehaviour
     void OnDestroy()
     {
         StopLogging();
+    }
+
+    private void QuitApplication()
+    {
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+        Application.Quit();
+#endif
     }
 }
