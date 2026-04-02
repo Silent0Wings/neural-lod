@@ -26,6 +26,9 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/BaseLine/BaseLineLOD_fixed_aggressive.unity
     guid: fdf98b45f02577942ac3708014ccace3
+  - enabled: 1
+    path: Assets/Scenes/Stage_3/Model/Evaluation_Mode_3.unity
+    guid: 51c4c9d3d48a7834c8dfd142588fcc44
   m_configObjects:
     com.unity.adaptivePerformance.basic.provider_settings: {fileID: 11400000, guid: 724e6412fe051304281b791c955612be, type: 2}
     com.unity.adaptiveperformance.loader_settings: {fileID: 11400000, guid: bbfc62b5f7f193d46b961871ac413929, type: 2}
