@@ -74,10 +74,13 @@ public class LODThresholdPredictor : MonoBehaviour
     // pre-alloc corners buffer to avoid new Vector3[8] per LODGroup per inference
     private readonly Vector3[] _corners = new Vector3[8];
 
-    // screen coverage is expensive (WorldToScreenPoint x8 per LODGroup).
-    // cache it and recompute on its own timer so inference cost is ~0.5ms not ~56ms.
-    private float _cachedScreenCoverage  = 0f;
-    private float _screenCoverageLastTime = -999f;
+    // screen coverage computed via rolling batch — identical math to full sweep,
+    // but spread across frames. 200 groups/frame = ~0.4ms/frame for 14k objects.
+    // _cachedScreenCoverage updated once per full cycle (~74 frames at 200/frame).
+    private float _cachedScreenCoverage = 0.5f; // seeded mid-range until first cycle
+    private float _coverageAccumPixels  = 0f;
+    private int   _coverageBatchIndex   = 0;
+    private const int CoverageBatchSize = 200;
 
     void OnEnable()
     {
@@ -111,6 +114,9 @@ public class LODThresholdPredictor : MonoBehaviour
     void Update()
     {
         if (!IsReady || _mainCam == null) return;
+
+        // advance rolling screen coverage batch every frame (200 groups ~0.4ms)
+        AdvanceCoverageBatch(_mainCam);
 
         Vector3 pos     = _mainCam.transform.position;
         float   dist    = Vector3.Distance(pos, _lastPredictPos);
@@ -190,12 +196,7 @@ public class LODThresholdPredictor : MonoBehaviour
         _rawBuffer[8]  = Mathf.Cos(rotation.z * Mathf.Deg2Rad);
         _rawBuffer[9]  = _triangleRecorder.Valid ? (float)_triangleRecorder.LastValue : 0f;
         _rawBuffer[10] = _rendererRecorder.Valid ? (float)_rendererRecorder.LastValue : 0f;
-        // only recompute screen coverage on its own interval, not every inference tick
-        if (Time.time - _screenCoverageLastTime >= screenCoverageInterval)
-        {
-            _cachedScreenCoverage    = ComputeScreenCoverage(_mainCam);
-            _screenCoverageLastTime  = Time.time;
-        }
+        // _cachedScreenCoverage updated continuously by AdvanceCoverageBatch() in Update()
         _rawBuffer[11] = _cachedScreenCoverage;
         _rawBuffer[12] = _drawCallRecorder.Valid ? (float)_drawCallRecorder.LastValue : 0f;
 
@@ -237,50 +238,44 @@ public class LODThresholdPredictor : MonoBehaviour
         lastPredictedThreshold = lastPrediction.Length > 0 ? lastPrediction[0] : 0f;
     }
 
-    private float ComputeScreenCoverage(Camera cam)
+    // Processes CoverageBatchSize LODGroups per call. Called every Update() frame.
+    // One full cycle = _lodGroups.Length / CoverageBatchSize frames (~74 frames at 14k groups).
+    // At cycle end, _cachedScreenCoverage is updated with the accumulated result.
+    private void AdvanceCoverageBatch(Camera cam)
     {
-        if (_cachedRenderers == null || _cachedRenderers.Length == 0 || cam == null) return 0f;
+        if (_cachedRenderers == null || _cachedRenderers.Length == 0 || cam == null) return;
 
         float totalPixels = cam.pixelWidth * cam.pixelHeight;
-        if (totalPixels <= 0f) return 0f;
+        if (totalPixels <= 0f) return;
 
-        float coveredPixels = 0f;
-        int   groupCount    = _lodGroups.Length;
+        int groupCount = _lodGroups.Length;
+        int end = Mathf.Min(_coverageBatchIndex + CoverageBatchSize, groupCount);
 
-        for (int g = 0; g < groupCount; g++)
+        for (int g = _coverageBatchIndex; g < end; g++)
         {
             if (_lodGroups[g] == null) continue;
 
-            Renderer[] renderers = _cachedRenderers[g]; // cached -- no GetLODs() alloc
+            Renderer[] renderers = _cachedRenderers[g];
             if (renderers == null || renderers.Length == 0) continue;
 
             Renderer firstValid = null;
             for (int r = 0; r < renderers.Length; r++)
-            {
                 if (renderers[r] != null) { firstValid = renderers[r]; break; }
-            }
             if (firstValid == null) continue;
 
             Bounds b = new Bounds(firstValid.bounds.center, Vector3.zero);
             for (int r = 0; r < renderers.Length; r++)
-            {
-                if (renderers[r] != null)
-                    b.Encapsulate(renderers[r].bounds);
-            }
+                if (renderers[r] != null) b.Encapsulate(renderers[r].bounds);
 
-            Vector3 c = b.center;
-
-            // FAST EARLY OUT: Distance culling (200m sqr = 40000)
+            Vector3 c        = b.center;
             Vector3 toCenter = c - cam.transform.position;
-            if (toCenter.sqrMagnitude > 40000f) continue;
 
-            // FAST EARLY OUT: Dot product forward culling (skip if completely behind camera)
+            // early outs retained — still skip distant / back-facing objects
+            if (toCenter.sqrMagnitude > 40000f) continue;
             float radius = Mathf.Max(b.extents.x, Mathf.Max(b.extents.y, b.extents.z));
             if (Vector3.Dot(cam.transform.forward, toCenter) < -radius) continue;
 
             Vector3 e = b.extents;
-
-            // write into pre-alloc corners buffer -- no new Vector3[8] alloc
             _corners[0] = cam.WorldToScreenPoint(c + new Vector3( e.x,  e.y,  e.z));
             _corners[1] = cam.WorldToScreenPoint(c + new Vector3(-e.x,  e.y,  e.z));
             _corners[2] = cam.WorldToScreenPoint(c + new Vector3( e.x, -e.y,  e.z));
@@ -305,16 +300,20 @@ public class LODThresholdPredictor : MonoBehaviour
                 if (_corners[i].y < minY) minY = _corners[i].y;
                 if (_corners[i].y > maxY) maxY = _corners[i].y;
             }
-
-            minX = Mathf.Max(0f, minX);
-            minY = Mathf.Max(0f, minY);
-            maxX = Mathf.Min(cam.pixelWidth,  maxX);
-            maxY = Mathf.Min(cam.pixelHeight, maxY);
-
-            coveredPixels += Mathf.Max(0f, maxX - minX) * Mathf.Max(0f, maxY - minY);
+            minX = Mathf.Max(0f, minX); minY = Mathf.Max(0f, minY);
+            maxX = Mathf.Min(cam.pixelWidth, maxX); maxY = Mathf.Min(cam.pixelHeight, maxY);
+            _coverageAccumPixels += Mathf.Max(0f, maxX - minX) * Mathf.Max(0f, maxY - minY);
         }
 
-        return Mathf.Clamp01(coveredPixels / totalPixels);
+        _coverageBatchIndex = end;
+
+        // cycle complete — publish accumulated value and reset for next cycle
+        if (_coverageBatchIndex >= groupCount)
+        {
+            _cachedScreenCoverage = Mathf.Clamp01(_coverageAccumPixels / totalPixels);
+            _coverageAccumPixels  = 0f;
+            _coverageBatchIndex   = 0;
+        }
     }
 
     private void LoadScalerConstants()
