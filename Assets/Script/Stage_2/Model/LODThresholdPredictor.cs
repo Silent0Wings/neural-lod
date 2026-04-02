@@ -20,6 +20,8 @@ public class LODThresholdPredictor : MonoBehaviour
     public float spatialDelta = 1.0f;
     [Tooltip("Max seconds between predictions")]
     public float maxInterval = 1.0f;
+    [Tooltip("How often screen coverage is recomputed in seconds. Independent of inference rate. 0.1 = 10hz.")]
+    public float screenCoverageInterval = 0.1f;
 
     [Header("Output Smoothing")]
     [Tooltip("EMA blend factor per prediction. 0=frozen, 1=no smoothing. 0.15 recommended.")]
@@ -45,21 +47,37 @@ public class LODThresholdPredictor : MonoBehaviour
         "screen_coverage", "draw_call_count"
     };
 
-    private float[] _scalerMean = new float[FEATURE_COUNT];
+    private float[] _scalerMean  = new float[FEATURE_COUNT];
     private float[] _scalerScale = new float[FEATURE_COUNT];
 
     ProfilerRecorder _triangleRecorder;
     ProfilerRecorder _rendererRecorder;
     ProfilerRecorder _drawCallRecorder;
 
-    private Model _model;
-    private Worker _worker;
+    private Model          _model;
+    private Worker         _worker;
+    private Tensor<float>  _inputTensor; // pre-alloc once in LoadModel
 
-    private Camera _mainCam;
-    private Vector3 _lastPredictPos;
-    private float _lastPredictTime;
+    private Camera   _mainCam;
+    private Vector3  _lastPredictPos;
+    private float    _lastPredictTime;
     private Stopwatch _stopwatch = new Stopwatch();
     private LODGroup[] _lodGroups;
+
+    // pre-alloc inference scratch buffers so RunInference has zero managed heap allocs
+    private readonly float[] _rawBuffer      = new float[FEATURE_COUNT];
+    private readonly float[] _featuresBuffer = new float[FEATURE_COUNT];
+
+    // cached LOD renderer arrays to avoid GetLODs() allocation every inference
+    private Renderer[][] _cachedRenderers;
+
+    // pre-alloc corners buffer to avoid new Vector3[8] per LODGroup per inference
+    private readonly Vector3[] _corners = new Vector3[8];
+
+    // screen coverage is expensive (WorldToScreenPoint x8 per LODGroup).
+    // cache it and recompute on its own timer so inference cost is ~0.5ms not ~56ms.
+    private float _cachedScreenCoverage  = 0f;
+    private float _screenCoverageLastTime = -999f;
 
     void OnEnable()
     {
@@ -78,10 +96,11 @@ public class LODThresholdPredictor : MonoBehaviour
     void Start()
     {
         _mainCam = Camera.main;
-        _lastPredictPos = _mainCam != null ? _mainCam.transform.position : Vector3.zero;
+        _lastPredictPos  = _mainCam != null ? _mainCam.transform.position : Vector3.zero;
         _lastPredictTime = Time.time;
 
         _lodGroups = Object.FindObjectsByType<LODGroup>(FindObjectsSortMode.None);
+        CacheLODRenderers();
 
         LoadScalerConstants();
 
@@ -93,21 +112,45 @@ public class LODThresholdPredictor : MonoBehaviour
     {
         if (!IsReady || _mainCam == null) return;
 
-        Vector3 pos = _mainCam.transform.position;
-        float dist = Vector3.Distance(pos, _lastPredictPos);
-        float elapsed = Time.time - _lastPredictTime;
+        Vector3 pos     = _mainCam.transform.position;
+        float   dist    = Vector3.Distance(pos, _lastPredictPos);
+        float   elapsed = Time.time - _lastPredictTime;
 
         if (dist >= spatialDelta || elapsed >= maxInterval)
         {
             RunInference(pos, _mainCam.transform.eulerAngles);
-            _lastPredictPos = pos;
+            _lastPredictPos  = pos;
             _lastPredictTime = Time.time;
         }
     }
 
     void OnDestroy()
     {
+        _inputTensor?.Dispose();
         _worker?.Dispose();
+    }
+
+    // cache lods[0].renderers once at Start so ComputeScreenCoverage never calls GetLODs()
+    private void CacheLODRenderers()
+    {
+        if (_lodGroups == null || _lodGroups.Length == 0)
+        {
+            _cachedRenderers = new Renderer[0][];
+            return;
+        }
+
+        _cachedRenderers = new Renderer[_lodGroups.Length][];
+
+        for (int g = 0; g < _lodGroups.Length; g++)
+        {
+            LODGroup group = _lodGroups[g];
+            if (group == null) continue;
+
+            LOD[] lods = group.GetLODs(); // one-time alloc at startup only
+            if (lods.Length == 0) continue;
+
+            _cachedRenderers[g] = lods[0].renderers;
+        }
     }
 
     private void LoadModel()
@@ -118,54 +161,77 @@ public class LODThresholdPredictor : MonoBehaviour
             return;
         }
 
-        _model = ModelLoader.Load(onnxAsset);
-        _worker = new Worker(_model, BackendType.GPUCompute);
-        UnityEngine.Debug.Log("[LODThresholdPredictor] Model loaded.");
+        _model  = ModelLoader.Load(onnxAsset);
+
+        // CPU backend removes the GPUCompute -> CPU readback stall entirely.
+        // PeekOutput() on CPU returns a directly readable tensor with no fence.
+        _worker = new Worker(_model, BackendType.CPU);
+
+        // pre-alloc the input tensor once; updated in-place each inference via indexer
+        _inputTensor = new Tensor<float>(new TensorShape(1, FEATURE_COUNT));
+
+        // pre-alloc lastPrediction so first inference never clones a raw array
+        lastPrediction = new float[1];
+
+        UnityEngine.Debug.Log("[LODThresholdPredictor] Model loaded (CPU backend, zero-alloc inference).");
     }
 
     private void RunInference(Vector3 position, Vector3 rotation)
     {
-        float[] raw = new float[FEATURE_COUNT]
+        // write raw values into pre-alloc buffer
+        _rawBuffer[0]  = position.x;
+        _rawBuffer[1]  = position.y;
+        _rawBuffer[2]  = position.z;
+        _rawBuffer[3]  = Mathf.Sin(rotation.x * Mathf.Deg2Rad);
+        _rawBuffer[4]  = Mathf.Cos(rotation.x * Mathf.Deg2Rad);
+        _rawBuffer[5]  = Mathf.Sin(rotation.y * Mathf.Deg2Rad);
+        _rawBuffer[6]  = Mathf.Cos(rotation.y * Mathf.Deg2Rad);
+        _rawBuffer[7]  = Mathf.Sin(rotation.z * Mathf.Deg2Rad);
+        _rawBuffer[8]  = Mathf.Cos(rotation.z * Mathf.Deg2Rad);
+        _rawBuffer[9]  = _triangleRecorder.Valid ? (float)_triangleRecorder.LastValue : 0f;
+        _rawBuffer[10] = _rendererRecorder.Valid ? (float)_rendererRecorder.LastValue : 0f;
+        // only recompute screen coverage on its own interval, not every inference tick
+        if (Time.time - _screenCoverageLastTime >= screenCoverageInterval)
         {
-            position.x,
-            position.y,
-            position.z,
-            Mathf.Sin(rotation.x * Mathf.Deg2Rad),
-            Mathf.Cos(rotation.x * Mathf.Deg2Rad),
-            Mathf.Sin(rotation.y * Mathf.Deg2Rad),
-            Mathf.Cos(rotation.y * Mathf.Deg2Rad),
-            Mathf.Sin(rotation.z * Mathf.Deg2Rad),
-            Mathf.Cos(rotation.z * Mathf.Deg2Rad),
-            _triangleRecorder.Valid  ? (float)_triangleRecorder.LastValue  : 0f,
-            _rendererRecorder.Valid  ? (float)_rendererRecorder.LastValue  : 0f,
-            ComputeScreenCoverage(_mainCam),
-            _drawCallRecorder.Valid  ? (float)_drawCallRecorder.LastValue  : 0f
-        };
+            _cachedScreenCoverage    = ComputeScreenCoverage(_mainCam);
+            _screenCoverageLastTime  = Time.time;
+        }
+        _rawBuffer[11] = _cachedScreenCoverage;
+        _rawBuffer[12] = _drawCallRecorder.Valid ? (float)_drawCallRecorder.LastValue : 0f;
 
-        float[] features = new float[FEATURE_COUNT];
+        // normalize into pre-alloc features buffer
         for (int i = 0; i < FEATURE_COUNT; i++)
-            features[i] = (raw[i] - _scalerMean[i]) / _scalerScale[i];
+            _featuresBuffer[i] = (_rawBuffer[i] - _scalerMean[i]) / _scalerScale[i];
+
+        // upload into the pre-alloc tensor via CPU indexer -- no new Tensor alloc
+        for (int i = 0; i < FEATURE_COUNT; i++)
+            _inputTensor[i] = _featuresBuffer[i];
 
         _stopwatch.Restart();
 
-        using var inputTensor = new Tensor<float>(new TensorShape(1, FEATURE_COUNT), features);
-        _worker.Schedule(inputTensor);
-        var rawOutput = _worker.PeekOutput();
-        if (rawOutput is not Tensor<float> outputTensor) return;
-        using var cpuTensor = outputTensor.ReadbackAndClone();
-        float[] rawPrediction = cpuTensor.DownloadToArray();
+        _worker.Schedule(_inputTensor);
+
+        // CPU backend: PeekOutput() returns a CPU-resident tensor directly.
+        // No ReadbackAndClone(), no DownloadToArray(), no GPU fence stall.
+        var outputTensor = _worker.PeekOutput() as Tensor<float>;
+        if (outputTensor == null) return;
+
+        // Block until all scheduled ops are done before reading via indexer.
+        // CompleteAllPendingOperations is void and does not allocate unlike ReadbackAndClone.
+        outputTensor.CompleteAllPendingOperations();
+
         _stopwatch.Stop();
         lastInferenceDurationMs = (float)_stopwatch.Elapsed.TotalMilliseconds;
 
-        // EMA smoothing to prevent abrupt threshold jumps at grid cell boundaries
-        if (lastPrediction == null || lastPrediction.Length != rawPrediction.Length)
+        // EMA smoothing -- read output values directly, no managed array alloc
+        int outLen = outputTensor.shape.length;
+        if (lastPrediction == null || lastPrediction.Length != outLen)
+            lastPrediction = new float[outLen]; // only on first call or shape change
+
+        for (int i = 0; i < outLen; i++)
         {
-            lastPrediction = (float[])rawPrediction.Clone();
-        }
-        else
-        {
-            for (int i = 0; i < rawPrediction.Length; i++)
-                lastPrediction[i] = Mathf.Lerp(lastPrediction[i], rawPrediction[i], emaAlpha);
+            float predicted = outputTensor[i];
+            lastPrediction[i] = Mathf.Lerp(lastPrediction[i], predicted, emaAlpha);
         }
 
         lastPredictedThreshold = lastPrediction.Length > 0 ? lastPrediction[0] : 0f;
@@ -173,21 +239,19 @@ public class LODThresholdPredictor : MonoBehaviour
 
     private float ComputeScreenCoverage(Camera cam)
     {
-        if (_lodGroups == null || _lodGroups.Length == 0 || cam == null) return 0f;
+        if (_cachedRenderers == null || _cachedRenderers.Length == 0 || cam == null) return 0f;
 
         float totalPixels = cam.pixelWidth * cam.pixelHeight;
         if (totalPixels <= 0f) return 0f;
 
         float coveredPixels = 0f;
+        int   groupCount    = _lodGroups.Length;
 
-        foreach (LODGroup group in _lodGroups)
+        for (int g = 0; g < groupCount; g++)
         {
-            if (group == null) continue;
+            if (_lodGroups[g] == null) continue;
 
-            LOD[] lods = group.GetLODs();
-            if (lods.Length == 0) continue;
-
-            Renderer[] renderers = lods[0].renderers;
+            Renderer[] renderers = _cachedRenderers[g]; // cached -- no GetLODs() alloc
             if (renderers == null || renderers.Length == 0) continue;
 
             Renderer firstValid = null;
@@ -206,32 +270,31 @@ public class LODThresholdPredictor : MonoBehaviour
 
             Vector3 c = b.center;
             Vector3 e = b.extents;
-            Vector3[] corners = new Vector3[8]
-            {
-                cam.WorldToScreenPoint(c + new Vector3( e.x,  e.y,  e.z)),
-                cam.WorldToScreenPoint(c + new Vector3(-e.x,  e.y,  e.z)),
-                cam.WorldToScreenPoint(c + new Vector3( e.x, -e.y,  e.z)),
-                cam.WorldToScreenPoint(c + new Vector3(-e.x, -e.y,  e.z)),
-                cam.WorldToScreenPoint(c + new Vector3( e.x,  e.y, -e.z)),
-                cam.WorldToScreenPoint(c + new Vector3(-e.x,  e.y, -e.z)),
-                cam.WorldToScreenPoint(c + new Vector3( e.x, -e.y, -e.z)),
-                cam.WorldToScreenPoint(c + new Vector3(-e.x, -e.y, -e.z))
-            };
+
+            // write into pre-alloc corners buffer -- no new Vector3[8] alloc
+            _corners[0] = cam.WorldToScreenPoint(c + new Vector3( e.x,  e.y,  e.z));
+            _corners[1] = cam.WorldToScreenPoint(c + new Vector3(-e.x,  e.y,  e.z));
+            _corners[2] = cam.WorldToScreenPoint(c + new Vector3( e.x, -e.y,  e.z));
+            _corners[3] = cam.WorldToScreenPoint(c + new Vector3(-e.x, -e.y,  e.z));
+            _corners[4] = cam.WorldToScreenPoint(c + new Vector3( e.x,  e.y, -e.z));
+            _corners[5] = cam.WorldToScreenPoint(c + new Vector3(-e.x,  e.y, -e.z));
+            _corners[6] = cam.WorldToScreenPoint(c + new Vector3( e.x, -e.y, -e.z));
+            _corners[7] = cam.WorldToScreenPoint(c + new Vector3(-e.x, -e.y, -e.z));
 
             bool allBehind = true;
-            foreach (Vector3 corner in corners)
-                if (corner.z > 0f) { allBehind = false; break; }
+            for (int i = 0; i < 8; i++)
+                if (_corners[i].z > 0f) { allBehind = false; break; }
             if (allBehind) continue;
 
             float minX = float.MaxValue, minY = float.MaxValue;
             float maxX = float.MinValue, maxY = float.MinValue;
-            foreach (Vector3 corner in corners)
+            for (int i = 0; i < 8; i++)
             {
-                if (corner.z <= 0f) continue;
-                if (corner.x < minX) minX = corner.x;
-                if (corner.x > maxX) maxX = corner.x;
-                if (corner.y < minY) minY = corner.y;
-                if (corner.y > maxY) maxY = corner.y;
+                if (_corners[i].z <= 0f) continue;
+                if (_corners[i].x < minX) minX = _corners[i].x;
+                if (_corners[i].x > maxX) maxX = _corners[i].x;
+                if (_corners[i].y < minY) minY = _corners[i].y;
+                if (_corners[i].y > maxY) maxY = _corners[i].y;
             }
 
             minX = Mathf.Max(0f, minX);
@@ -255,7 +318,7 @@ public class LODThresholdPredictor : MonoBehaviour
             return;
         }
 
-        string json = System.IO.File.ReadAllText(path);
+        string     json = System.IO.File.ReadAllText(path);
         ScalerData data = JsonUtility.FromJson<ScalerData>(json);
 
         if (data.mean == null || data.mean.Length != FEATURE_COUNT)
@@ -297,7 +360,7 @@ public class LODThresholdPredictor : MonoBehaviour
             }
         }
 
-        _scalerMean = data.mean;
+        _scalerMean  = data.mean;
         _scalerScale = data.scale;
 
         IsReady = true;
@@ -308,7 +371,7 @@ public class LODThresholdPredictor : MonoBehaviour
     private class ScalerData
     {
         public string[] feature_names;
-        public float[] mean;
-        public float[] scale;
+        public float[]  mean;
+        public float[]  scale;
     }
 }

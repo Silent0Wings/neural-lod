@@ -3,7 +3,6 @@
 // Uses LODGroup.SetLODs() to replace screenRelativeTransitionHeight values.
 // Enforces valid ranges (0..1) and monotonically decreasing order.
 using UnityEngine;
-using System.Collections.Generic;
 
 public class RuntimeLODApplicator : MonoBehaviour
 {
@@ -14,8 +13,14 @@ public class RuntimeLODApplicator : MonoBehaviour
     [Tooltip("Minimum difference between adjacent thresholds.")]
     public float minThresholdGap = 0.01f;
 
-    LODGroup[] lodGroups;
-    float[] lastAppliedThresholds;
+    LODGroup[] _lodGroups;
+
+    // cached LOD arrays so ApplyToGroup never calls GetLODs() at runtime
+    LOD[][] _cachedLODs;
+
+    // pre-alloc sanitize and last-applied buffers to avoid per-frame heap allocs
+    float[] _sanitizedBuffer;
+    float[] _lastAppliedBuffer;
 
     void Start()
     {
@@ -25,101 +30,109 @@ public class RuntimeLODApplicator : MonoBehaviour
         if (predictor == null)
             UnityEngine.Debug.LogError("[RuntimeLODApplicator] No LODThresholdPredictor found.");
 
-        lodGroups = Object.FindObjectsByType<LODGroup>(FindObjectsSortMode.None);
-        UnityEngine.Debug.Log($"[RuntimeLODApplicator] Found {lodGroups.Length} LODGroups.");
+        _lodGroups = Object.FindObjectsByType<LODGroup>(FindObjectsSortMode.None);
+        UnityEngine.Debug.Log($"[RuntimeLODApplicator] Found {_lodGroups.Length} LODGroups.");
+
+        CacheLODs();
+
+        // disable stack trace extraction for logs in this session to prevent
+        // StackTraceUtility.ExtractStackTrace allocations from any remaining log calls
+        Application.SetStackTraceLogType(LogType.Warning, StackTraceLogType.None);
+        Application.SetStackTraceLogType(LogType.Log,     StackTraceLogType.None);
+    }
+
+    // cache GetLODs() results once at startup so LateUpdate has zero GetLODs() calls
+    void CacheLODs()
+    {
+        if (_lodGroups == null) { _cachedLODs = new LOD[0][]; return; }
+
+        _cachedLODs = new LOD[_lodGroups.Length][];
+        for (int g = 0; g < _lodGroups.Length; g++)
+        {
+            LODGroup group = _lodGroups[g];
+            if (group != null)
+                _cachedLODs[g] = group.GetLODs(); // one-time alloc at startup only
+        }
     }
 
     void LateUpdate()
     {
         if (predictor == null || predictor.lastPrediction == null) return;
-        if (lodGroups == null || lodGroups.Length == 0) return;
+        if (_lodGroups == null || _lodGroups.Length == 0) return;
 
         float[] predicted = predictor.lastPrediction;
 
-        // skip if unchanged
-        if (lastAppliedThresholds != null && ArraysEqual(predicted, lastAppliedThresholds))
-            return;
-
-        // sanitize: clamp and enforce monotonic
-        float[] sanitized = SanitizeThresholds(predicted);
-
-        // apply to all LODGroups
-        foreach (LODGroup group in lodGroups)
+        // init pre-alloc buffers on first run or if prediction length changed
+        if (_sanitizedBuffer == null || _sanitizedBuffer.Length != predicted.Length)
         {
-            if (group != null)
-                ApplyToGroup(group, sanitized);
+            _sanitizedBuffer    = new float[predicted.Length];
+            _lastAppliedBuffer  = new float[predicted.Length];
         }
 
-        lastAppliedThresholds = (float[])sanitized.Clone();
+        // skip if prediction unchanged
+        if (ArraysEqual(predicted, _lastAppliedBuffer))
+            return;
+
+        // sanitize into pre-alloc buffer
+        SanitizeThresholds(predicted, _sanitizedBuffer);
+
+        // apply to all LODGroups
+        int groupCount = _lodGroups.Length;
+        for (int g = 0; g < groupCount; g++)
+        {
+            if (_lodGroups[g] != null && _cachedLODs[g] != null)
+                ApplyToGroup(_lodGroups[g], _cachedLODs[g], _sanitizedBuffer);
+        }
+
+        // copy sanitized into pre-alloc last-applied buffer -- no Clone() alloc
+        System.Array.Copy(_sanitizedBuffer, _lastAppliedBuffer, _sanitizedBuffer.Length);
     }
 
-    void ApplyToGroup(LODGroup group, float[] thresholds)
+    void ApplyToGroup(LODGroup group, LOD[] lods, float[] thresholds)
     {
-        LOD[] lods = group.GetLODs();
         if (lods.Length == 0) return;
 
         int count = Mathf.Min(lods.Length, thresholds.Length);
         for (int i = 0; i < count; i++)
-        {
             lods[i].screenRelativeTransitionHeight = thresholds[i];
-        }
 
-        // for any remaining LOD levels beyond prediction length, set to near zero
+        // remaining LOD levels beyond prediction length go near zero
         for (int i = count; i < lods.Length; i++)
-        {
             lods[i].screenRelativeTransitionHeight = 0.001f;
-        }
 
-        // final guard before SetLODs
-        bool valid = true;
+        // final monotonic guard -- silent skip, no LogWarning in hot path
         for (int i = 1; i < lods.Length; i++)
         {
             if (lods[i].screenRelativeTransitionHeight >= lods[i - 1].screenRelativeTransitionHeight)
-            {
-                valid = false;
-                break;
-            }
-        }
-        if (!valid)
-        {
-            UnityEngine.Debug.LogWarning($"[RuntimeLODApplicator] Skipping SetLODs on '{group.gameObject.name}': " +
-                                         "sanitized thresholds are not strictly decreasing.");
-            return;
+                return;
         }
 
         group.SetLODs(lods);
         group.RecalculateBounds();
     }
 
-    float[] SanitizeThresholds(float[] raw)
+    // writes result into pre-alloc output buffer -- no heap alloc
+    void SanitizeThresholds(float[] raw, float[] output)
     {
-        float[] result = new float[raw.Length];
-
-        // clamp to valid range
         for (int i = 0; i < raw.Length; i++)
-        {
-            result[i] = Mathf.Clamp01(raw[i]);
-        }
+            output[i] = Mathf.Clamp01(raw[i]);
 
         // enforce strictly decreasing from index 0 downward
-        // start from highest LOD and work down
-        for (int i = 1; i < result.Length; i++)
+        for (int i = 1; i < output.Length; i++)
         {
-            float maxAllowed = result[i - 1] - minThresholdGap;
-            if (result[i] >= result[i - 1])
-                result[i] = Mathf.Max(0f, maxAllowed);
+            float maxAllowed = output[i - 1] - minThresholdGap;
+            if (output[i] >= output[i - 1])
+                output[i] = Mathf.Max(0f, maxAllowed);
         }
 
-        // second pass — ensure no value went negative and broke order
-        for (int i = result.Length - 1; i >= 1; i--)
+        // second pass to fix any negative values that broke order
+        for (int i = output.Length - 1; i >= 1; i--)
         {
-            if (result[i] < 0f) result[i] = 0f;
-            if (result[i - 1] <= result[i])
-                result[i - 1] = result[i] + minThresholdGap;
-            result[i - 1] = Mathf.Clamp01(result[i - 1]);
+            if (output[i] < 0f) output[i] = 0f;
+            if (output[i - 1] <= output[i])
+                output[i - 1] = output[i] + minThresholdGap;
+            output[i - 1] = Mathf.Clamp01(output[i - 1]);
         }
-
-        return result;
     }
 
     bool ArraysEqual(float[] a, float[] b)
