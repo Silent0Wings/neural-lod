@@ -165,6 +165,11 @@ public class InferenceEvaluationLogger : MonoBehaviour
         Vector3 pos = targetCamera != null ? targetCamera.transform.position    : Vector3.zero;
         Vector3 rot = targetCamera != null ? targetCamera.transform.eulerAngles : Vector3.zero;
 
+        // normalize euler angles from [0, 360) to [-180, 180) to match labels.csv convention
+        rot.x = rot.x > 180f ? rot.x - 360f : rot.x;
+        rot.y = rot.y > 180f ? rot.y - 360f : rot.y;
+        rot.z = rot.z > 180f ? rot.z - 360f : rot.z;
+
         float currentThreshold = predictor.lastPredictedThreshold;
         int thresholdChanged   = (_lastLoggedThreshold >= 0f &&
                                   Mathf.Abs(currentThreshold - _lastLoggedThreshold) > 0.0001f) ? 1 : 0;
