@@ -140,7 +140,7 @@ public class RuntimeLODApplicator : MonoBehaviour
         if (a.Length != b.Length) return false;
         for (int i = 0; i < a.Length; i++)
         {
-            if (Mathf.Abs(a[i] - b[i]) > 0.0001f) return false;
+            if (Mathf.Abs(a[i] - b[i]) > 0.02f) return false;
         }
         return true;
     }

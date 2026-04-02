@@ -269,6 +269,15 @@ public class LODThresholdPredictor : MonoBehaviour
             }
 
             Vector3 c = b.center;
+
+            // FAST EARLY OUT: Distance culling (200m sqr = 40000)
+            Vector3 toCenter = c - cam.transform.position;
+            if (toCenter.sqrMagnitude > 40000f) continue;
+
+            // FAST EARLY OUT: Dot product forward culling (skip if completely behind camera)
+            float radius = Mathf.Max(b.extents.x, Mathf.Max(b.extents.y, b.extents.z));
+            if (Vector3.Dot(cam.transform.forward, toCenter) < -radius) continue;
+
             Vector3 e = b.extents;
 
             // write into pre-alloc corners buffer -- no new Vector3[8] alloc
