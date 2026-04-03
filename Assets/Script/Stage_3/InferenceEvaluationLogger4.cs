@@ -41,7 +41,7 @@ public class InferenceEvaluationLogger4 : MonoBehaviour
     private bool _quitting = false;
 
     private StreamWriter writer;
-    private string outputPath;
+    private string outputPath;  
 
     private FrameTiming[] frameTimings = new FrameTiming[1];
     private LODThresholdPredictor4 predictor;
@@ -94,7 +94,11 @@ public class InferenceEvaluationLogger4 : MonoBehaviour
             "cam_pos_z," +
             "cam_rot_x," +
             "cam_rot_y," +
-            "cam_rot_z"
+            "cam_rot_z," +
+            "triangle_count," +
+            "visible_renderer_count," +
+            "screen_coverage," +
+            "draw_call_count"
         );
 
         FrameTimingManager.CaptureFrameTimings();
@@ -199,7 +203,7 @@ public class InferenceEvaluationLogger4 : MonoBehaviour
         }
 
         writer.WriteLine(string.Format(CultureInfo.InvariantCulture,
-            "{0},{1},{2:F4},{3:F4},{4:F4},{5:F4},{6:F6},{7:F6},{8:F6},{9:F6},{10:F6},{11:F6},{12},{13:F4},{14:F4},{15:F4},{16:F4},{17:F4},{18:F4}",
+            "{0},{1},{2:F4},{3:F4},{4:F4},{5:F4},{6:F6},{7:F6},{8:F6},{9:F6},{10:F6},{11:F6},{12},{13:F4},{14:F4},{15:F4},{16:F4},{17:F4},{18:F4},{19:F0},{20:F0},{21:F6},{22:F0}",
             runLabel,
             frameCount,
             cpuMs,
@@ -218,7 +222,11 @@ public class InferenceEvaluationLogger4 : MonoBehaviour
             pos.z,
             rot.x,
             rot.y,
-            rot.z
+            rot.z,
+            predictor.LastTriangleCount,
+            predictor.LastVisibleRendererCount,
+            predictor.LastScreenCoverage,
+            predictor.LastDrawCallCount
         ));
 
         frameCount++;

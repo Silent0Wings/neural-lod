@@ -38,6 +38,12 @@ public class LODThresholdPredictor4 : MonoBehaviour
     // the full 4-value prediction vector
     [HideInInspector] public float[] lastPrediction;
 
+    // complexity diagnostics (read-only for logger)
+    public float LastTriangleCount        => _triangleRecorder.Valid ? (float)_triangleRecorder.LastValue : 0f;
+    public float LastVisibleRendererCount => _rendererRecorder.Valid ? (float)_rendererRecorder.LastValue : 0f;
+    public float LastScreenCoverage       => _cachedScreenCoverage;
+    public float LastDrawCallCount        => _drawCallRecorder.Valid ? (float)_drawCallRecorder.LastValue : 0f;
+
     private const int FEATURE_COUNT = 13;
     private const int OUTPUT_DIM    = 4;
 
