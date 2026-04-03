@@ -1,0 +1,41 @@
+{
+  "feature_names": [
+    "cpu_frame_time",
+    "gpu_frame_time",
+    "fps",
+    "visible_renderer_count",
+    "triangle_count",
+    "draw_call_count",
+    "camera_speed",
+    "camera_rotation_speed",
+    "avg_screen_coverage",
+    "previous_bias",
+    "recent_lod_switch_count"
+  ],
+  "mean": [
+    16.722660768557233,
+    5.308261651842838,
+    60.49431116703252,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.5291401472607014,
+    0.0
+  ],
+  "scale": [
+    2.281688587176266,
+    0.936927509354426,
+    7.516633494920851,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    0.4991501295378222,
+    1.0
+  ]
+}
