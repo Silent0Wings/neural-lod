@@ -30,9 +30,9 @@ public class RLRolloutLogger : MonoBehaviour
 
     [Header("Episode Settings")]
     [Tooltip("Number of valid steps to collect per episode. 0 = unlimited.")]
-    public int stepsPerEpisode = 1000;
+    public int stepsPerEpisode = 1024;
     [Tooltip("Maximum episodes to collect, then stop. 0 = unlimited.")]
-    public int maxEpisodes = 0;
+    public int maxEpisodes = 8;
 
     [Header("IO")]
     [Tooltip("Flush CSV buffer to disk every N rows.")]
