@@ -97,6 +97,11 @@ public class RLEvaluationLogger : MonoBehaviour
     private int   _actionCount     = 0;
     private float _gpuSum          = 0f;
     private int   _gpuCount        = 0;
+    private float _fpsSum          = 0f;
+    private int   _fpsCount        = 0;
+    private float _biasSum         = 0f;
+    private int   _biasCount       = 0;
+    private int   _switchTotal     = 0;
     private float _prevScreenCov   = -1f;   // for SSIM proxy delta
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
@@ -182,6 +187,20 @@ public class RLEvaluationLogger : MonoBehaviour
         Debug.Log($"[RLEvaluationLogger] Logging stopped. Episodes: {_episodeIndex}.");
     }
 
+    /// <summary>
+    /// Called by RLRolloutLogger when it starts a new rollout episode.
+    /// Finalises the current evaluation episode and starts the next one,
+    /// keeping evaluation episode boundaries in sync with rollout boundaries.
+    /// </summary>
+    public void NotifyRolloutEpisodeEnd()
+    {
+        if (!_logging) return;
+        FinaliseEpisode();
+        _episodeIndex++;
+        _frameInEp = 0;
+        ResetEpisodeAccumulators();
+    }
+
     // ── Per-Frame Recording ────────────────────────────────────────────────
 
     void LateUpdate()
@@ -222,7 +241,7 @@ public class RLEvaluationLogger : MonoBehaviour
             if (cpuMs > 500f || cpuMs < 0f) cpuMs = 0f;
         }
 
-        float fps        = Time.deltaTime > 0f ? 1f / Time.deltaTime : 0f;
+        float fps        = Time.deltaTime > 0f ? 1f / Time.deltaTime : 60f; // matches RLFeatureExtractor fallback
         float lodBias    = QualitySettings.lodBias;
         float actionDelta = _rolloutLogger != null ? _rolloutLogger.LastActionDelta : 0f;
 
@@ -258,6 +277,18 @@ public class RLEvaluationLogger : MonoBehaviour
             _gpuSum += gpuMs;
             _gpuCount++;
         }
+
+        if (fps > 0f)
+        {
+            _fpsSum += fps;
+            _fpsCount++;
+        }
+
+        _biasSum  += lodBias;
+        _biasCount++;
+
+        if (actionDelta != 0f)
+            _switchTotal++;
 
         _actionSum   += actionDelta;
         _actionSumSq += actionDelta * actionDelta;
@@ -296,16 +327,14 @@ public class RLEvaluationLogger : MonoBehaviour
     {
         if (_actionCount == 0) return;
 
-        float meanGpu    = _gpuCount > 0 ? _gpuSum / _gpuCount : 0f;
-        float meanFps    = 0f; // fps already aggregated implicitly via frame count
-        float meanBias   = 1.0f; // placeholder — logged per-step; Python can aggregate
+        float meanGpu    = _gpuCount  > 0 ? _gpuSum  / _gpuCount  : 0f;
+        float meanFps    = _fpsCount  > 0 ? _fpsSum  / _fpsCount  : 0f;
+        float meanBias   = _biasCount > 0 ? _biasSum / _biasCount : 1f;
         float actionMean = _actionSum / _actionCount;
 
         // Sample variance: E[X^2] - E[X]^2
         float actionVariance = (_actionSumSq / _actionCount) - (actionMean * actionMean);
         actionVariance = Mathf.Max(0f, actionVariance); // numerical safety
-
-        float switchTotal = _extractor.RawFeatures != null ? _extractor.RawFeatures[10] : 0f;
 
         _epWriter.WriteLine(string.Format(CultureInfo.InvariantCulture,
             "{0},{1},{2},{3:F6},{4:F4},{5:F2},{6:F4},{7:F6},{8:F6},{9:F0}",
@@ -318,7 +347,7 @@ public class RLEvaluationLogger : MonoBehaviour
             meanBias,
             actionMean,
             actionVariance,
-            switchTotal
+            _switchTotal
         ));
 
         _epWriter.Flush();
@@ -338,6 +367,11 @@ public class RLEvaluationLogger : MonoBehaviour
         _actionCount   = 0;
         _gpuSum        = 0f;
         _gpuCount      = 0;
+        _fpsSum        = 0f;
+        _fpsCount      = 0;
+        _biasSum       = 0f;
+        _biasCount     = 0;
+        _switchTotal   = 0;
         _prevScreenCov = -1f;
     }
 

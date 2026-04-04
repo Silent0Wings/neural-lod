@@ -56,7 +56,9 @@ public class RLRolloutLogger : MonoBehaviour
 
     // ── Private State ──────────────────────────────────────────────────────
 
-    private RLFeatureExtractor _extractor;
+    private RLFeatureExtractor   _extractor;
+    private RLPolicyController   _policyController; // optional reset on episode boundary
+    private RLEvaluationLogger   _evalLogger;       // optional episode sync notification
 
     private StreamWriter  _writer;
     private List<string>  _rowBuffer;
@@ -67,7 +69,9 @@ public class RLRolloutLogger : MonoBehaviour
 
     void Awake()
     {
-        _extractor = GetComponent<RLFeatureExtractor>();
+        _extractor        = GetComponent<RLFeatureExtractor>();
+        _policyController = GetComponent<RLPolicyController>();
+        _evalLogger       = GetComponent<RLEvaluationLogger>();
     }
 
     void Start()
@@ -137,10 +141,14 @@ public class RLRolloutLogger : MonoBehaviour
             return;
         }
 
+        // Notify evaluation logger before resetting state
+        _evalLogger?.NotifyRolloutEpisodeEnd();
+
         // Reset environment for next episode
         QualitySettings.lodBias = 1.0f;
         LastActionDelta         = 0f;
         _extractor.ResetEpisodeState();
+        _policyController?.ResetEpisode(); // sync bias + dwell counter in controller
 
         StartEpisode();
     }
