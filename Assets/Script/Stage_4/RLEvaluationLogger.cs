@@ -15,19 +15,21 @@ using System.Globalization;
 //   • Policy stability    : action variance per episode; a good policy settles to low variance.
 //   • Generalization      : run on held-out paths with the same logger; compare mean GPU CDF.
 //
-// Reward proxy computed inline (GPU time only — matches Python training formula):
-//   r_t = -alpha * ((gpu_ms - t_target) / t_target)^2
-//         - beta  * (1 - screen_coverage)   ← SSIM proxy; document substitution
-//         - gamma * (recent_switch_count / N_max)
+// Reward proxy computed inline — IMPROVEMENT-BASED (matches Python training formula):
+//   r_t = (gpu_prev - gpu_ms)                      ← positive when GPU time decreases
+//         + bonusScale * (gpu_ms <= tTargetMs)      ← bonus for staying under budget
+//   Clipped to [-rewardClip, +rewardClip].
+//
+// Rationale (Stage_4_rl_failure_diagnosis_and_fix.md):
+//   The old quadratic reward was always <= 0, causing the agent to learn inaction.
+//   The switch penalty (gamma > 0) compounded this: any action was penalized.
+//   Improvement-based reward is directional and can be positive.
 //
 // Baselines to compare against (same CSV format, different runLabel):
 //   unity_default    : lodBias=1.0, no controller
 //   rule_based       : fps<45 → decrease (RLPolicyController fallback mode)
 //   stage2_mlp       : Stage 2 supervised MLP oracle (RuntimeLODApplicator)
 //   random_policy    : Uniform random bias in [0.30, 2.00]
-//
-// SSIM proxy note: screen_coverage delta is used as SSIM approximation.
-// Document this substitution in the evaluation report.
 
 [RequireComponent(typeof(RLFeatureExtractor))]
 public class RLEvaluationLogger : MonoBehaviour
@@ -42,24 +44,31 @@ public class RLEvaluationLogger : MonoBehaviour
     [Header("Camera")]
     public Camera targetCamera;
 
-    [Header("Reward Weights")]
-    [Tooltip("Alpha: weight for frame-time penalty term.")]
+    [Header("Reward (Improvement-Based)")]
+    [Tooltip("GPU frame-time target in ms (VAR_T_TARGET_MS). Used in success bonus.")]
+    public float tTargetMs  = 4.5f;
+    [Tooltip("Bonus added to reward when gpu_ms <= tTargetMs.")]
+    public float bonusScale = 1.0f;
+    [Tooltip("Reward clipped to [-rewardClip, +rewardClip] to prevent single-frame dominance.")]
+    public float rewardClip = 5.0f;
+
+    [Header("Reward Weights (Legacy — not used in reward computation)")]
+    [Tooltip("Alpha was the frame-time penalty weight. Not used in improvement-based reward.")]
     public float alpha = 1.0f;
-    [Tooltip("Beta: weight for visual-quality penalty term (SSIM proxy).")]
+    [Tooltip("Beta was the visual-quality penalty weight. Not used in improvement-based reward.")]
     public float beta  = 0.5f;
-    [Tooltip("Gamma: weight for LOD-switch stability penalty.")]
-    public float gamma = 0.2f;
-    [Tooltip("GPU frame-time target in ms (VAR_T_TARGET_MS).")]
-    public float tTargetMs = 4.5f;
-    [Tooltip("N_max for switch-count normalization (matches lodSwitchWindow in RLFeatureExtractor).")]
-    public float nMax = 30f;
+    [Tooltip("Gamma for switch penalty. Must stay 0: switch penalty caused policy collapse.")]
+    public float gamma = 0.0f;
+    [Tooltip("N_max for switch-count normalization. Kept for baseline comparisons only.")]
+    public float nMax  = 30f;
 
     [Header("Warmup")]
     public int warmupFrames = 64;
 
     [Header("Capture")]
-    [Tooltip("Stop after this many frames per episode. 0 = follow RLRolloutLogger episode boundary.")]
-    public int maxFramesPerEpisode = 0;
+    [Tooltip("Safety-net episode length in frames. Set equal to RLRolloutLogger.stepsPerEpisode. " +
+             "Primary boundary is driven by RLRolloutLogger via NotifyRolloutEpisodeEnd().")]
+    public int maxFramesPerEpisode = 1024;
 
     [Header("IO")]
     public int flushInterval = 120;
@@ -102,7 +111,8 @@ public class RLEvaluationLogger : MonoBehaviour
     private float _biasSum         = 0f;
     private int   _biasCount       = 0;
     private int   _switchTotal     = 0;
-    private float _prevScreenCov   = -1f;   // for SSIM proxy delta
+    private float _prevScreenCov   = -1f;   // for coverage delta column
+    private float _prevGpuMs       = -1f;   // for improvement-based reward (gpu_prev - gpu_t)
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -249,25 +259,23 @@ public class RLEvaluationLogger : MonoBehaviour
         float screenCov      = raw != null ? raw[8] : 0f;
         float recentSwitches = raw != null ? raw[10] : 0f;
 
-        // SSIM proxy delta (screen_coverage change between steps)
+        // Coverage delta for CSV column
         float coverageDelta = _prevScreenCov >= 0f ? screenCov - _prevScreenCov : 0f;
         _prevScreenCov = screenCov;
 
-        // Inline reward proxy — same formula as Python training:
-        //   r_t = -alpha * ((gpu_ms - t_target) / t_target)^2
-        //         - beta  * (1 - screen_coverage)
-        //         - gamma * (recent_switch_count / N_max)
-        // WARNING: only valid when gpuMs > 0. Corrupt frames should be filtered
-        // in Python (df_samples_clean) before computing episode returns for training.
+        // Improvement-based reward — matches train_rl_policy_stage4.ipynb:
+        //   r_t = (gpu_prev - gpu_ms) + bonusScale * (gpu_ms <= tTargetMs)
+        //   clipped to [-rewardClip, +rewardClip]
+        // Only computed when gpuMs > 0 (corrupt/warmup frames skipped).
         float rewardStep = 0f;
         if (gpuMs > 0f)
         {
-            float normTime   = (gpuMs - tTargetMs) / tTargetMs;
-            float frameTerm  = -alpha * (normTime * normTime);
-            float qualTerm   = -beta  * (1f - Mathf.Clamp01(screenCov));
-            float stabTerm   = -gamma * Mathf.Clamp01(recentSwitches / nMax);
-            rewardStep = frameTerm + qualTerm + stabTerm;
+            float gpuPrev    = _prevGpuMs > 0f ? _prevGpuMs : gpuMs; // first frame: no improvement
+            float improvement = gpuPrev - gpuMs;
+            float bonus       = gpuMs <= tTargetMs ? bonusScale : 0f;
+            rewardStep        = Mathf.Clamp(improvement + bonus, -rewardClip, rewardClip);
         }
+        _prevGpuMs = gpuMs > 0f ? gpuMs : _prevGpuMs;
 
         _episodeReturn += rewardStep;
 
@@ -373,6 +381,7 @@ public class RLEvaluationLogger : MonoBehaviour
         _biasCount     = 0;
         _switchTotal   = 0;
         _prevScreenCov = -1f;
+        _prevGpuMs     = -1f;
     }
 
     // ── IO Helpers ─────────────────────────────────────────────────────────

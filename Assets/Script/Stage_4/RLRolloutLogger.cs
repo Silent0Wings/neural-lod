@@ -8,14 +8,13 @@ using System.Globalization;
 //
 // One CSV file is produced per episode under Application.persistentDataPath/RLRollouts/.
 // The Python training notebook reads these files, applies df_samples_clean filtering
-// to remove corrupt GPU readings, then computes per-step rewards:
+// to remove corrupt GPU readings, then computes per-step improvement-based rewards:
 //
-//   r_t = -alpha * ((gpu_ms - 4.5) / 4.5)^2
-//         - beta  * (1 - ssim_proxy_t)
-//         - gamma * (recent_lod_switch_count / N_max)
+//   r_t = (gpu_prev - gpu_frame_time) + BONUS_SCALE * (gpu_frame_time <= 4.5)
+//   clipped to [-5.0, +5.0]
 //
-// where ssim_proxy_t = avg_screen_coverage (full SSIM unavailable at training time).
 // t_target = 4.5 ms (VAR_T_TARGET_MS). Use gpu_frame_time ONLY — not cpu_frame_time.
+// Switch penalty REMOVED (gamma=0): penalising switches caused policy inaction collapse.
 //
 // Camera pitch is restricted to {-15, 0, +15} degrees in the scene's CameraPathAnimator.
 // Poses like -60 deg pitch produce near-empty frustums and zero reward signal.
@@ -137,6 +136,7 @@ public class RLRolloutLogger : MonoBehaviour
         if (maxEpisodes > 0 && _episodeIndex >= maxEpisodes)
         {
             CollectionComplete = true;
+            _evalLogger?.NotifyRolloutEpisodeEnd(); // finalise last eval episode before stopping
             Debug.Log("[RLRolloutLogger] Collection complete. All episodes logged.");
             return;
         }
