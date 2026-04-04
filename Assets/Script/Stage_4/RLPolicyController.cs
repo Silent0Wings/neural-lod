@@ -40,11 +40,11 @@ public class RLPolicyController : MonoBehaviour
 
     [Header("Stability Guardrails")]
     [Tooltip("Minimum |delta_bias| to apply an update. Below this the action is discarded.")]
-    [Range(0.01f, 0.10f)]
+    [Range(0.0001f, 0.10f)]
     public float deadZone = 0.02f;           // VAR_DEAD_ZONE
 
     [Tooltip("Minimum frames between consecutive bias changes.")]
-    [Range(5, 10)]
+    [Range(1, 10)]
     public int dwellFrames = 5;              // VAR_DWELL_FRAMES
 
     [Tooltip("Maximum bias delta magnitude per step.")]
