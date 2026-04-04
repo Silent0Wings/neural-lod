@@ -280,7 +280,7 @@ public class RLFeatureExtractor : MonoBehaviour
 
     private void LoadScalerConstants()
     {
-        string path = Path.Combine(Application.streamingAssetsPath, scalerJsonFileName);
+        string path = Application.streamingAssetsPath + "/" + scalerJsonFileName;
 
         if (!File.Exists(path))
         {

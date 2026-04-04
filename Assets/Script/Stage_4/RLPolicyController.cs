@@ -105,6 +105,11 @@ public class RLPolicyController : MonoBehaviour
 
     void Update()
     {
+        // Reset action handshake every frame so the logger records 0 when no action is applied.
+        // Without this, LastActionDelta retains the previous applied value on non-inference frames,
+        // causing stale action_delta and wrong lod_bias_before_action in the rollout CSV.
+        if (_logger != null) _logger.LastActionDelta = 0f;
+
         if (!_extractor.IsReady) return;
         if (Time.frameCount % inferenceInterval != 0) return;
 
