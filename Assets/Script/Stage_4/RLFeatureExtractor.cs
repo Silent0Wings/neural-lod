@@ -4,7 +4,7 @@ using Unity.Profiling;
 using System.IO;
 
 // RLFeatureExtractor
-// Stage 4 — Collects the 11-feature state vector for the RL agent.
+// Stage 4 — Collects the 13-feature state vector for the RL agent.
 // Exposes both raw (RawFeatures) and normalized (NormalizedFeatures) arrays.
 // Scaler loaded from rl_scaler_constants.json in StreamingAssets.
 //
@@ -20,10 +20,12 @@ using System.IO;
 // 8             | avg_screen_coverage     | Active LOD renderers only      | ParticleSystemRenderer excluded.
 // 9             | previous_bias           | QualitySettings.lodBias prior frame
 // 10            | recent_lod_switch_count | Ring buffer over lodSwitchWindow frames
+// 11            | floor_dwell_score       | Decaying accumulator near BIAS_MIN
+// 12            | ceiling_dwell_score     | Decaying accumulator near BIAS_MAX
 
 public class RLFeatureExtractor : MonoBehaviour
 {
-    public const int FEATURE_COUNT = 11;
+    public const int FEATURE_COUNT = 13;
 
     private static readonly string[] ExpectedFeatureNames =
     {
@@ -37,7 +39,9 @@ public class RLFeatureExtractor : MonoBehaviour
         "camera_rotation_speed",
         "avg_screen_coverage",
         "previous_bias",
-        "recent_lod_switch_count"
+        "recent_lod_switch_count",
+        "floor_dwell_score",
+        "ceiling_dwell_score"
     };
 
     // ── Inspector ──────────────────────────────────────────────────────────
@@ -46,7 +50,7 @@ public class RLFeatureExtractor : MonoBehaviour
     public Camera targetCamera;
 
     [Header("Scaler JSON")]
-    [Tooltip("Filename inside StreamingAssets for the 11-feature RL scaler.")]
+    [Tooltip("Filename inside StreamingAssets for the 13-feature RL scaler.")]
     public string scalerJsonFileName = "rl_scaler_constants.json";
 
     [Header("Coverage Sampling")]
@@ -57,6 +61,29 @@ public class RLFeatureExtractor : MonoBehaviour
     [Header("LOD Switch Window")]
     [Tooltip("Ring-buffer length (frames) for counting recent LOD switches.")]
     public int lodSwitchWindow = 30;
+
+    [Header("Bias Dwell Memory")]
+    [Tooltip("Minimum expected runtime lodBias. Must match training/export guardrails.")]
+    public float biasMin = 0.30f;
+
+    [Tooltip("Maximum expected runtime lodBias. Must match training/export guardrails.")]
+    public float biasMax = 2.00f;
+
+    [Tooltip("Bias values within this margin of BIAS_MIN contribute to floor dwell.")]
+    [Min(0.01f)]
+    public float floorMargin = 0.18f;
+
+    [Tooltip("Bias values within this margin of BIAS_MAX contribute to ceiling dwell.")]
+    [Min(0.01f)]
+    public float ceilingMargin = 0.18f;
+
+    [Tooltip("How quickly dwell accumulators rise while bias stays near a limit.")]
+    [Range(0.01f, 1.0f)]
+    public float dwellAccumulationRate = 0.30f;
+
+    [Tooltip("How much of the previous dwell score remains each frame.")]
+    [Range(0.01f, 0.999f)]
+    public float dwellDecay = 0.92f;
 
     // ── Public Output ──────────────────────────────────────────────────────
 
@@ -108,6 +135,8 @@ public class RLFeatureExtractor : MonoBehaviour
     private int[] _switchRingBuffer;        // 1 if a switch occurred on that frame
     private int   _ringHead           = 0;
     private int   _recentSwitchCount  = 0;
+    private float _floorDwellScore    = 0f;
+    private float _ceilingDwellScore  = 0f;
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -127,6 +156,9 @@ public class RLFeatureExtractor : MonoBehaviour
 
         coverageSampleInterval = Mathf.Clamp(coverageSampleInterval, 1, 10);
         lodSwitchWindow        = Mathf.Max(1, lodSwitchWindow);
+        biasMax                = Mathf.Max(biasMin + 0.01f, biasMax);
+        floorMargin            = Mathf.Max(0.01f, floorMargin);
+        ceilingMargin          = Mathf.Max(0.01f, ceilingMargin);
         _allRenderers     = FindObjectsByType<Renderer>(FindObjectsSortMode.None);
         _previousBias     = QualitySettings.lodBias;
         _currentBias      = QualitySettings.lodBias;
@@ -181,6 +213,7 @@ public class RLFeatureExtractor : MonoBehaviour
 
         _previousBias = _currentBias;
         _currentBias  = newBias;
+        UpdateBiasDwellScores(_previousBias);
 
         // 6. Collect remaining stats
         float fps   = Time.deltaTime > 0f ? 1f / Time.deltaTime : 60f;
@@ -198,6 +231,8 @@ public class RLFeatureExtractor : MonoBehaviour
         RawFeatures[8]  = _cachedScreenCoverage;  // LOD renderers only, no particles/fog
         RawFeatures[9]  = _previousBias;
         RawFeatures[10] = (float)_recentSwitchCount;
+        RawFeatures[11] = _floorDwellScore;
+        RawFeatures[12] = _ceilingDwellScore;
 
         // 8. Normalize for inference
         for (int i = 0; i < FEATURE_COUNT; i++)
@@ -216,6 +251,8 @@ public class RLFeatureExtractor : MonoBehaviour
         _currentBias       = 1.0f;
         _recentSwitchCount = 0;
         _ringHead          = 0;
+        _floorDwellScore   = 0f;
+        _ceilingDwellScore = 0f;
         System.Array.Clear(_switchRingBuffer, 0, _switchRingBuffer.Length);
         _skipMotionFrame      = true;
         _coverageFrameCounter = coverageSampleInterval; // force immediate resample next frame
@@ -280,6 +317,15 @@ public class RLFeatureExtractor : MonoBehaviour
 
         _cachedVisibleCount   = count;
         _cachedScreenCoverage = count > 0 ? total / count : 0f;
+    }
+
+    private void UpdateBiasDwellScores(float bias)
+    {
+        float floorProximity = Mathf.Clamp01(((biasMin + floorMargin) - bias) / Mathf.Max(floorMargin, 1e-4f));
+        float ceilingProximity = Mathf.Clamp01((bias - (biasMax - ceilingMargin)) / Mathf.Max(ceilingMargin, 1e-4f));
+
+        _floorDwellScore = Mathf.Clamp01(_floorDwellScore * dwellDecay + floorProximity * dwellAccumulationRate);
+        _ceilingDwellScore = Mathf.Clamp01(_ceilingDwellScore * dwellDecay + ceilingProximity * dwellAccumulationRate);
     }
 
     private void LoadScalerConstants()

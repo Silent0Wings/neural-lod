@@ -5,7 +5,7 @@ using Unity.InferenceEngine;
 // Stage 4 — Closed-loop RL bias controller.
 //
 // At each inference step:
-//   1. Read 11-dim normalized state from RLFeatureExtractor.
+//   1. Read normalized state from RLFeatureExtractor.
 //   2. Run ONNX policy → raw bias delta in [-0.20, +0.20].
 //   3. Apply stability guardrails: dead zone → dwell guard → bias clamp.
 //   4. Write applied delta to RLRolloutLogger.LastActionDelta for CSV logging.
@@ -57,6 +57,37 @@ public class RLPolicyController : MonoBehaviour
     [Tooltip("Absolute maximum lodBias.")]
     public float biasMax = 2.00f;            // VAR_BIAS_CLAMP upper
 
+    [Header("Cumulative Recovery Assist")]
+    [Tooltip("Only accumulate upward recovery force while lodBias is at or below this value.")]
+    public float recoveryEligibleBias = 0.85f;
+
+    [Tooltip("Only accumulate downward correction force while lodBias is at or above this value.")]
+    public float correctionEligibleBias = 1.45f;
+
+    [Tooltip("Treat positive actions below this threshold as too weak to count as real recovery.")]
+    [Range(0.0001f, 0.10f)]
+    public float recoveryGrowthThreshold = 0.02f;
+
+    [Tooltip("Number of consecutive negative or too-weak outputs before the upward recovery scalar grows.")]
+    [Range(1, 30)]
+    public int recoveryTriggerFrames = 5;
+
+    [Tooltip("Multiplier applied to the cumulative upward recovery scalar each time the trigger fires.")]
+    [Range(1.0f, 3.0f)]
+    public float recoveryForceMultiplier = 1.35f;
+
+    [Tooltip("Maximum value for the cumulative upward recovery scalar.")]
+    [Range(1.0f, 10.0f)]
+    public float recoveryForceMax = 4.0f;
+
+    [Tooltip("Base positive delta injected when cumulative recovery assist is active.")]
+    [Range(0.0001f, 0.10f)]
+    public float recoveryBoostBase = 0.02f;
+
+    [Tooltip("Reset the cumulative upward recovery scalar once GPU time reaches target minus this margin.")]
+    [Range(0.0f, 1.0f)]
+    public float recoveryBudgetResetMargin = 0.10f;
+
     [Header("Debug")]
     public bool logActions = false;
 
@@ -64,6 +95,10 @@ public class RLPolicyController : MonoBehaviour
     [SerializeField] private float _currentBias  = 1.0f;
     [SerializeField] private float _rawDelta     = 0f;
     [SerializeField] private string _activeMode  = "uninitialized";
+    [SerializeField] private int _consecutiveWeakUpwardFrames = 0;
+    [SerializeField] private float _upwardRecoveryScalar = 1.0f;
+    [SerializeField] private int _consecutiveWeakDownwardFrames = 0;
+    [SerializeField] private float _downwardCorrectionScalar = 1.0f;
 
     // ── Private State ──────────────────────────────────────────────────────
 
@@ -75,7 +110,7 @@ public class RLPolicyController : MonoBehaviour
 
     private int _lastSwitchFrame;
 
-    private const int INPUT_DIM = RLFeatureExtractor.FEATURE_COUNT; // 11
+    private const int INPUT_DIM = RLFeatureExtractor.FEATURE_COUNT;
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -101,14 +136,23 @@ public class RLPolicyController : MonoBehaviour
 
         _currentBias     = QualitySettings.lodBias;
         _lastSwitchFrame = Time.frameCount;
+        _consecutiveWeakUpwardFrames = 0;
+        _upwardRecoveryScalar = 1.0f;
+        _consecutiveWeakDownwardFrames = 0;
+        _downwardCorrectionScalar = 1.0f;
     }
 
     void Update()
     {
-        // Reset action handshake every frame so the logger records 0 when no action is applied.
-        // Without this, LastActionDelta retains the previous applied value on non-inference frames,
-        // causing stale action_delta and wrong lod_bias_before_action in the rollout CSV.
-        if (_logger != null) _logger.LastActionDelta = 0f;
+        // Reset logger handshakes every frame.
+        // LastActionDelta must return to 0 on frames where no action is applied, and
+        // ShouldLogDecisionFrame gates the rollout logger so it records only actual
+        // controller evaluation points instead of every render frame.
+        if (_logger != null)
+        {
+            _logger.LastActionDelta = 0f;
+            _logger.ShouldLogDecisionFrame = false;
+        }
 
         if (!_extractor.IsReady) return;
         if (Time.frameCount % inferenceInterval != 0) return;
@@ -116,6 +160,8 @@ public class RLPolicyController : MonoBehaviour
         float gpuMs = _extractor.GpuFrameTime;
         float cpuMs = _extractor.CpuFrameTime;
         if (gpuMs <= 0f || cpuMs <= 0f) return; // skip invalid frames
+
+        if (_logger != null) _logger.ShouldLogDecisionFrame = true;
 
         float delta = _activeMode == "neural"
             ? GetNeuralDelta()
@@ -141,6 +187,10 @@ public class RLPolicyController : MonoBehaviour
         QualitySettings.lodBias = 1.0f;
         _currentBias            = 1.0f;
         _lastSwitchFrame        = Time.frameCount;
+        _consecutiveWeakUpwardFrames = 0;
+        _upwardRecoveryScalar = 1.0f;
+        _consecutiveWeakDownwardFrames = 0;
+        _downwardCorrectionScalar = 1.0f;
 
         if (_logger != null)
             _logger.LastActionDelta = 0f;
@@ -215,10 +265,13 @@ public class RLPolicyController : MonoBehaviour
 
     private void ApplyWithGuardrails(float delta)
     {
+        float gpuMs = _extractor != null ? _extractor.GpuFrameTime : 0f;
+        float assistedDelta = ApplyCumulativeRecoveryAssist(delta, gpuMs, QualitySettings.lodBias);
+
         // 1. Dead zone — discard actions too small to matter.
         //    Without this, the policy exploits GPU timing noise to produce
         //    rapid micro-oscillations that score well on return but are visually broken.
-        if (Mathf.Abs(delta) < deadZone)
+        if (Mathf.Abs(assistedDelta) < deadZone)
         {
             if (_logger != null) _logger.LastActionDelta = 0f;
             return;
@@ -233,7 +286,7 @@ public class RLPolicyController : MonoBehaviour
 
         // 3. Compute candidate bias and hard-clamp to [biasMin, biasMax].
         float current  = QualitySettings.lodBias;
-        float newBias  = Mathf.Clamp(current + delta, biasMin, biasMax);
+        float newBias  = Mathf.Clamp(current + assistedDelta, biasMin, biasMax);
         float applied  = newBias - current; // actual delta after clamp
 
         // If clamp collapsed the delta to below dead zone, skip the update.
@@ -254,6 +307,88 @@ public class RLPolicyController : MonoBehaviour
 
         if (logActions)
             Debug.Log($"[RLPolicyController] Bias {current:F3} → {newBias:F3} " +
-                      $"(delta={delta:F3} applied={applied:F3} mode={_activeMode})");
+                      $"(raw={delta:F3} assisted={assistedDelta:F3} applied={applied:F3} " +
+                      $"upScalar={_upwardRecoveryScalar:F2} upWeak={_consecutiveWeakUpwardFrames} " +
+                      $"downScalar={_downwardCorrectionScalar:F2} downWeak={_consecutiveWeakDownwardFrames} mode={_activeMode})");
     }
+
+    private float ApplyCumulativeRecoveryAssist(float rawDelta, float gpuMs, float currentBias)
+    {
+        float upwardResetGpuThreshold = TTargetMs - recoveryBudgetResetMargin;
+        float downwardResetGpuThreshold = TTargetMs + recoveryBudgetResetMargin;
+        bool upwardBudgetReached = gpuMs >= upwardResetGpuThreshold;
+        bool downwardBudgetReached = gpuMs <= downwardResetGpuThreshold;
+        bool lowBias = currentBias <= recoveryEligibleBias;
+        bool highBias = currentBias >= correctionEligibleBias;
+
+        if (upwardBudgetReached || !lowBias)
+        {
+            _consecutiveWeakUpwardFrames = 0;
+            _upwardRecoveryScalar = 1.0f;
+        }
+        else
+        {
+            bool weakUpwardSignal = rawDelta < recoveryGrowthThreshold;
+            if (weakUpwardSignal)
+            {
+                _consecutiveWeakUpwardFrames++;
+                if (_consecutiveWeakUpwardFrames >= recoveryTriggerFrames)
+                {
+                    _upwardRecoveryScalar = Mathf.Min(
+                        recoveryForceMax,
+                        _upwardRecoveryScalar * recoveryForceMultiplier
+                    );
+                    _consecutiveWeakUpwardFrames = 0;
+                }
+            }
+            else
+            {
+                _consecutiveWeakUpwardFrames = 0;
+            }
+        }
+
+        if (downwardBudgetReached || !highBias)
+        {
+            _consecutiveWeakDownwardFrames = 0;
+            _downwardCorrectionScalar = 1.0f;
+        }
+        else
+        {
+            bool weakDownwardSignal = rawDelta > -recoveryGrowthThreshold;
+            if (weakDownwardSignal)
+            {
+                _consecutiveWeakDownwardFrames++;
+                if (_consecutiveWeakDownwardFrames >= recoveryTriggerFrames)
+                {
+                    _downwardCorrectionScalar = Mathf.Min(
+                        recoveryForceMax,
+                        _downwardCorrectionScalar * recoveryForceMultiplier
+                    );
+                    _consecutiveWeakDownwardFrames = 0;
+                }
+            }
+            else
+            {
+                _consecutiveWeakDownwardFrames = 0;
+            }
+        }
+
+        float assistedDelta = rawDelta;
+
+        if (_upwardRecoveryScalar > 1.0f)
+        {
+            float positiveAssist = recoveryBoostBase * _upwardRecoveryScalar;
+            assistedDelta = Mathf.Max(assistedDelta, 0f) + positiveAssist;
+        }
+
+        if (_downwardCorrectionScalar > 1.0f)
+        {
+            float negativeAssist = recoveryBoostBase * _downwardCorrectionScalar;
+            assistedDelta = Mathf.Min(assistedDelta, 0f) - negativeAssist;
+        }
+
+        return Mathf.Clamp(assistedDelta, -maxActionDelta, maxActionDelta);
+    }
+
+    private float TTargetMs => 4.5f;
 }

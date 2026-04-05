@@ -19,7 +19,7 @@ using System.Globalization;
 // Camera pitch is restricted to {-15, 0, +15} degrees in the scene's CameraPathAnimator.
 // Poses like -60 deg pitch produce near-empty frustums and zero reward signal.
 //
-// Column order matches the 11-feature state vector in RLFeatureExtractor exactly.
+// Column order matches the 13-feature state vector in RLFeatureExtractor exactly.
 // Python scaler must use these same column names to rebuild normalization.
 
 [RequireComponent(typeof(RLFeatureExtractor))]
@@ -49,6 +49,13 @@ public class RLRolloutLogger : MonoBehaviour
     /// Logged as action_delta in the rollout CSV.
     /// </summary>
     [HideInInspector] public float LastActionDelta = 0f;
+
+    /// <summary>
+    /// Written by RLPolicyController each Update before LateUpdate runs.
+    /// True only on frames where the controller actually evaluated a decision.
+    /// This lets the rollout CSV capture decision points rather than every render frame.
+    /// </summary>
+    [HideInInspector] public bool ShouldLogDecisionFrame = false;
 
     /// <summary>True once all episodes have been collected.</summary>
     public bool CollectionComplete { get; private set; } = false;
@@ -114,6 +121,8 @@ public class RLRolloutLogger : MonoBehaviour
             "avg_screen_coverage," +   // SSIM proxy used in Python reward
             "previous_bias," +
             "recent_lod_switch_count," +
+            "floor_dwell_score," +
+            "ceiling_dwell_score," +
             "lod_bias_before_action," +
             "action_delta," +          // bias delta output by policy
             "lod_bias_after_action"
@@ -161,6 +170,7 @@ public class RLRolloutLogger : MonoBehaviour
     {
         if (!_loggingActive || _episodeDone)   return;
         if (!_extractor.IsReady)               return;
+        if (!ShouldLogDecisionFrame)           return;
 
         float gpuMs = _extractor.GpuFrameTime;
         float cpuMs = _extractor.CpuFrameTime;
@@ -177,7 +187,7 @@ public class RLRolloutLogger : MonoBehaviour
 
         // Write row in invariant culture (period decimal separator)
         string row = string.Format(CultureInfo.InvariantCulture,
-            "{0},{1},{2:F4},{3:F4},{4:F2},{5:F0},{6:F0},{7:F0},{8:F4},{9:F4},{10:F6},{11:F4},{12:F0},{13:F4},{14:F4},{15:F4}",
+            "{0},{1},{2:F4},{3:F4},{4:F2},{5:F0},{6:F0},{7:F0},{8:F4},{9:F4},{10:F6},{11:F4},{12:F0},{13:F4},{14:F4},{15:F4},{16:F4},{17:F4}",
             _episodeIndex,          // 0  episode
             _stepIndex,             // 1  step
             cpuMs,                  // 2  cpu_frame_time
@@ -191,9 +201,11 @@ public class RLRolloutLogger : MonoBehaviour
             raw[8],                 // 10 avg_screen_coverage (SSIM proxy)
             raw[9],                 // 11 previous_bias
             raw[10],                // 12 recent_lod_switch_count
-            biasBefore,             // 13 lod_bias_before_action
-            LastActionDelta,        // 14 action_delta
-            biasAfter               // 15 lod_bias_after_action
+            raw[11],                // 13 floor_dwell_score
+            raw[12],                // 14 ceiling_dwell_score
+            biasBefore,             // 15 lod_bias_before_action
+            LastActionDelta,        // 16 action_delta
+            biasAfter               // 17 lod_bias_after_action
         );
 
         _rowBuffer.Add(row);
