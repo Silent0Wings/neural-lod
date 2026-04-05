@@ -51,7 +51,8 @@ public class RLFeatureExtractor : MonoBehaviour
 
     [Header("Coverage Sampling")]
     [Tooltip("Resample visible renderers every N frames.")]
-    public int coverageSampleInterval = 30;
+    [Range(1, 10)]
+    public int coverageSampleInterval = 10;
 
     [Header("LOD Switch Window")]
     [Tooltip("Ring-buffer length (frames) for counting recent LOD switches.")]
@@ -124,9 +125,12 @@ public class RLFeatureExtractor : MonoBehaviour
             }
         }
 
+        coverageSampleInterval = Mathf.Clamp(coverageSampleInterval, 1, 10);
+        lodSwitchWindow        = Mathf.Max(1, lodSwitchWindow);
         _allRenderers     = FindObjectsByType<Renderer>(FindObjectsSortMode.None);
         _previousBias     = QualitySettings.lodBias;
         _currentBias      = QualitySettings.lodBias;
+        _coverageFrameCounter = coverageSampleInterval; // prime an immediate first resample
         _switchRingBuffer = new int[lodSwitchWindow];
 
         LoadScalerConstants();
