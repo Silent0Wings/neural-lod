@@ -39,17 +39,14 @@ public class RLPolicyController : MonoBehaviour
     public int inferenceInterval = 2;
 
     [Header("Stability Guardrails")]
-    [Tooltip("Minimum |delta_bias| to apply an update. Below this the action is discarded.")]
-    [Range(0.0001f, 0.10f)]
-    public float deadZone = 0.02f;           // VAR_DEAD_ZONE
+    [Tooltip("Loaded from scaler JSON at runtime. Minimum |delta_bias| to apply an update.")]
+    private float deadZone => RLFeatureExtractor.DeadZone;
 
-    [Tooltip("Minimum frames between consecutive bias changes.")]
-    [Range(1, 10)]
-    public int dwellFrames = 5;              // VAR_DWELL_FRAMES
+    [Tooltip("Loaded from scaler JSON at runtime. Minimum frames between consecutive bias changes.")]
+    private int dwellFrames => RLFeatureExtractor.DwellFrames;
 
-    [Tooltip("Maximum bias delta magnitude per step.")]
-    [Range(0.01f, 0.20f)]
-    public float maxActionDelta = 0.20f;     // VAR_ACTION_RANGE upper bound
+    [Tooltip("Loaded from scaler JSON at runtime. Maximum bias delta magnitude per step.")]
+    private float maxActionDelta => RLFeatureExtractor.MaxActionDelta;
 
     [Tooltip("Absolute minimum lodBias. Below 0.30 the scene becomes visually broken.")]
     public float biasMin = 0.30f;            // VAR_BIAS_CLAMP lower
@@ -297,6 +294,10 @@ public class RLPolicyController : MonoBehaviour
         }
 
         // 4. Apply
+        // Snapshot bias BEFORE the action is applied (for accurate lod_bias_before_action in CSV)
+        if (_logger != null)
+            _logger.LastBiasBeforeAction = current;
+
         QualitySettings.lodBias = newBias;
         _currentBias            = newBias;
         _lastSwitchFrame        = Time.frameCount;
@@ -390,5 +391,5 @@ public class RLPolicyController : MonoBehaviour
         return Mathf.Clamp(assistedDelta, -maxActionDelta, maxActionDelta);
     }
 
-    private float TTargetMs => 4.5f;
+    private float TTargetMs => RLFeatureExtractor.TTargetMs;
 }

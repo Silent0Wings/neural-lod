@@ -54,9 +54,9 @@ public class RLFeatureExtractor : MonoBehaviour
     public string scalerJsonFileName = "rl_scaler_constants.json";
 
     [Header("Coverage Sampling")]
-    [Tooltip("Resample visible renderers every N frames.")]
+    [Tooltip("Resample visible renderers every N frames. Reduced to 2 to match 2-frame inference interval.")]
     [Range(1, 10)]
-    public int coverageSampleInterval = 10;
+    public int coverageSampleInterval = 2;
 
     [Header("LOD Switch Window")]
     [Tooltip("Ring-buffer length (frames) for counting recent LOD switches.")]
@@ -96,6 +96,32 @@ public class RLFeatureExtractor : MonoBehaviour
     public float GpuFrameTime  { get; private set; }
     public float CpuFrameTime  { get; private set; }
     public bool  IsReady       { get; private set; } = false;
+
+    /// <summary>All training-informed constants loaded from scaler JSON.</summary>
+    public static float TTargetMs { get; private set; } = 4.5f;
+    public static float ActionHeadScale { get; private set; } = 0.20f;
+    public static float MaxActionDelta { get; private set; } = 0.20f;
+    public static float DeadZone { get; private set; } = 0.02f;
+    public static int DwellFrames { get; private set; } = 5;
+    public static float BiasMin { get; private set; } = 0.30f;
+    public static float BiasMax { get; private set; } = 2.00f;
+    public static int InferenceInterval { get; private set; } = 2;
+
+    // ── Mode-based loss hyperparameters (from training) ──────────────────
+    public static float GpuTargetMsBase { get; private set; } = 4.5f;
+    public static float GpuTargetMsMin { get; private set; } = 4.0f;
+    public static float GpuTargetMsMax { get; private set; } = 6.5f;
+    public static float SceneComplexityScale { get; private set; } = 0.8f;
+    public static float SceneComplexityNormalization { get; private set; } = 50.0f;
+    public static float ModeHeadroomMarginMs { get; private set; } = 0.5f;
+    public static int ModeHeadroomFpsFloor { get; private set; } = 48;
+    public static int ModeBudgetFpsFloor { get; private set; } = 45;
+    public static float ExplorationUpwardWeight { get; private set; } = 0.4f;
+    public static float RecoveryDownwardWeight { get; private set; } = 0.6f;
+    public static float ThrashPenaltyWeight { get; private set; } = 0.1f;
+    public static float NominalActionRegularization { get; private set; } = 0.08f;
+    public static float ExplorationActionRegularization { get; private set; } = 0.05f;
+    public static float RecoveryActionRegularization { get; private set; } = 0.1f;
 
     // ── Scaler Constants ───────────────────────────────────────────────────
 
@@ -385,9 +411,36 @@ public class RLFeatureExtractor : MonoBehaviour
 
         _scalerMean  = data.mean;
         _scalerScale = data.scale;
-        IsReady      = true;
+        TTargetMs = data.t_target_ms;
+        ActionHeadScale = data.action_head_scale;
+        MaxActionDelta = data.max_action_delta;
+        DeadZone = data.dead_zone;
+        DwellFrames = data.dwell_frames;
+        BiasMin = data.bias_min;
+        BiasMax = data.bias_max;
+        InferenceInterval = data.inference_interval;
 
-        Debug.Log("[RLFeatureExtractor] Scaler loaded OK. Extractor READY.");
+        // Load mode-based loss hyperparameters
+        GpuTargetMsBase = data.gpu_target_ms_base;
+        GpuTargetMsMin = data.gpu_target_ms_min;
+        GpuTargetMsMax = data.gpu_target_ms_max;
+        SceneComplexityScale = data.scene_complexity_scale;
+        SceneComplexityNormalization = data.scene_complexity_normalization;
+        ModeHeadroomMarginMs = data.mode_headroom_margin_ms;
+        ModeHeadroomFpsFloor = data.mode_headroom_fps_floor;
+        ModeBudgetFpsFloor = data.mode_budget_fps_floor;
+        ExplorationUpwardWeight = data.exploration_upward_weight;
+        RecoveryDownwardWeight = data.recovery_downward_weight;
+        ThrashPenaltyWeight = data.thrash_penalty_weight;
+        NominalActionRegularization = data.nominal_action_regularization;
+        ExplorationActionRegularization = data.exploration_action_regularization;
+        RecoveryActionRegularization = data.recovery_action_regularization;
+
+        IsReady = true;
+
+        Debug.Log($"[RLFeatureExtractor] Scaler loaded OK. T_TARGET={TTargetMs}ms ACTION_SCALE={ActionHeadScale} " +
+                  $"DEAD_ZONE={DeadZone} DWELL_FRAMES={DwellFrames}. Mode thresholds: headroom_fps={ModeHeadroomFpsFloor} " +
+                  $"budget_fps={ModeBudgetFpsFloor} gpu_target={GpuTargetMsBase}ms. Extractor READY.");
     }
 
     [System.Serializable]
@@ -396,5 +449,32 @@ public class RLFeatureExtractor : MonoBehaviour
         public string[] feature_names;
         public float[]  mean;
         public float[]  scale;
+        public float    t_target_ms = 4.5f;
+        public float    action_head_scale = 0.20f;
+        public float    max_action_delta = 0.20f;
+        public float    dead_zone = 0.02f;
+        public int      dwell_frames = 5;
+        public float    bias_min = 0.30f;
+        public float    bias_max = 2.00f;
+        public int      inference_interval = 2;
+        public float    pg_coef = 0.50f;
+        public float    bc_coef_start = 1.0f;
+        public float    bc_coef_end = 0.5f;
+
+        // Mode-based loss hyperparameters
+        public float    gpu_target_ms_base = 4.5f;
+        public float    gpu_target_ms_min = 4.0f;
+        public float    gpu_target_ms_max = 6.5f;
+        public float    scene_complexity_scale = 0.8f;
+        public float    scene_complexity_normalization = 50.0f;
+        public float    mode_headroom_margin_ms = 0.5f;
+        public int      mode_headroom_fps_floor = 48;
+        public int      mode_budget_fps_floor = 45;
+        public float    exploration_upward_weight = 0.4f;
+        public float    recovery_downward_weight = 0.6f;
+        public float    thrash_penalty_weight = 0.1f;
+        public float    nominal_action_regularization = 0.08f;
+        public float    exploration_action_regularization = 0.05f;
+        public float    recovery_action_regularization = 0.1f;
     }
 }

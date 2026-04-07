@@ -45,8 +45,10 @@ public class RLEvaluationLogger : MonoBehaviour
     public Camera targetCamera;
 
     [Header("Reward (Improvement-Based)")]
-    [Tooltip("GPU frame-time target in ms (VAR_T_TARGET_MS). Used in success bonus.")]
-    public float tTargetMs  = 4.5f;
+    [Tooltip("All reward and control parameters loaded from scaler JSON.")]
+    private float tTargetMs => RLFeatureExtractor.GpuTargetMsBase;
+    private float deadZone => RLFeatureExtractor.DeadZone;
+    private int dwellFrames => RLFeatureExtractor.DwellFrames;
     [Tooltip("Bonus added to reward when gpu_ms <= tTargetMs.")]
     public float bonusScale = 1.0f;
     [Tooltip("Reward clipped to [-rewardClip, +rewardClip] to prevent single-frame dominance.")]

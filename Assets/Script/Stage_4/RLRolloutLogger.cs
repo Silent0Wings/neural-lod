@@ -51,6 +51,13 @@ public class RLRolloutLogger : MonoBehaviour
     [HideInInspector] public float LastActionDelta = 0f;
 
     /// <summary>
+    /// Written by RLPolicyController.ApplyWithGuardrails() before the action is applied.
+    /// Snapshotted bias value BEFORE the action delta is applied.
+    /// Logged as lod_bias_before_action in the rollout CSV.
+    /// </summary>
+    [HideInInspector] public float LastBiasBeforeAction = 1.0f;
+
+    /// <summary>
     /// Written by RLPolicyController each Update before LateUpdate runs.
     /// True only on frames where the controller actually evaluated a decision.
     /// This lets the rollout CSV capture decision points rather than every render frame.
@@ -183,7 +190,7 @@ public class RLRolloutLogger : MonoBehaviour
         if (raw == null) return;
 
         float biasAfter  = QualitySettings.lodBias;
-        float biasBefore = biasAfter - LastActionDelta;
+        float biasBefore = LastBiasBeforeAction;  // snapshotted in RLPolicyController.ApplyWithGuardrails()
 
         // Write row in invariant culture (period decimal separator)
         string row = string.Format(CultureInfo.InvariantCulture,
