@@ -1,6 +1,7 @@
 """
 Stage 4: Policy Network & Helper Functions (Notebook §5-6 utilities)
 """
+# Pipeline stage: notebook model/runtime helper layer used by training and diagnostics.
 import numpy as np
 import pandas as pd
 import torch

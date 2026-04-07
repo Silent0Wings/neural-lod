@@ -1,6 +1,7 @@
 """
 Stage 4: ONNX Export & Viability Gates (Notebook §9-10)
 """
+# Pipeline stage: notebook sections 9-10, quality gates and ONNX export.
 import torch
 import numpy as np
 

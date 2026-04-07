@@ -2,6 +2,7 @@
 Stage 4: Data Loading & Cleaning (Notebook §1-2)
 Loads rollout_ep*.csv files, cleans timing data, adds dwell features.
 """
+# Pipeline stage: notebook sections 1-2, plus dynamic GPU target setup.
 import numpy as np
 import pandas as pd
 from config import (

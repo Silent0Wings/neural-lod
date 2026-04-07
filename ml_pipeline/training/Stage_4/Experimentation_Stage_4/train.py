@@ -1,6 +1,7 @@
 """
 Stage 4: Optuna Tuning + REINFORCE Training Loop (Notebook §6-7)
 """
+# Pipeline stage: notebook sections 6-7, returns, split, Optuna, and final training.
 import logging
 import numpy as np
 import pandas as pd

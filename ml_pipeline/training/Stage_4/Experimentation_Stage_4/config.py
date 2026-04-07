@@ -2,6 +2,7 @@
 Stage 4: RL LOD Policy Training - Configuration
 All constants and hyperparameters matching the notebook's config cell.
 """
+# Pipeline stage: shared configuration used by all Stage 4 experiment scripts.
 import torch
 import numpy as np
 from pathlib import Path

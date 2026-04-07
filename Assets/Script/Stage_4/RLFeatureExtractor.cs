@@ -63,12 +63,6 @@ public class RLFeatureExtractor : MonoBehaviour
     public int lodSwitchWindow = 30;
 
     [Header("Bias Dwell Memory")]
-    [Tooltip("Minimum expected runtime lodBias. Must match training/export guardrails.")]
-    public float biasMin = 0.30f;
-
-    [Tooltip("Maximum expected runtime lodBias. Must match training/export guardrails.")]
-    public float biasMax = 2.00f;
-
     [Tooltip("Bias values within this margin of BIAS_MIN contribute to floor dwell.")]
     [Min(0.01f)]
     public float floorMargin = 0.18f;
@@ -182,7 +176,6 @@ public class RLFeatureExtractor : MonoBehaviour
 
         coverageSampleInterval = Mathf.Clamp(coverageSampleInterval, 1, 10);
         lodSwitchWindow        = Mathf.Max(1, lodSwitchWindow);
-        biasMax                = Mathf.Max(biasMin + 0.01f, biasMax);
         floorMargin            = Mathf.Max(0.01f, floorMargin);
         ceilingMargin          = Mathf.Max(0.01f, ceilingMargin);
         _allRenderers     = FindObjectsByType<Renderer>(FindObjectsSortMode.None);
@@ -347,8 +340,8 @@ public class RLFeatureExtractor : MonoBehaviour
 
     private void UpdateBiasDwellScores(float bias)
     {
-        float floorProximity = Mathf.Clamp01(((biasMin + floorMargin) - bias) / Mathf.Max(floorMargin, 1e-4f));
-        float ceilingProximity = Mathf.Clamp01((bias - (biasMax - ceilingMargin)) / Mathf.Max(ceilingMargin, 1e-4f));
+        float floorProximity = Mathf.Clamp01(((BiasMin + floorMargin) - bias) / Mathf.Max(floorMargin, 1e-4f));
+        float ceilingProximity = Mathf.Clamp01((bias - (BiasMax - ceilingMargin)) / Mathf.Max(ceilingMargin, 1e-4f));
 
         _floorDwellScore = Mathf.Clamp01(_floorDwellScore * dwellDecay + floorProximity * dwellAccumulationRate);
         _ceilingDwellScore = Mathf.Clamp01(_ceilingDwellScore * dwellDecay + ceilingProximity * dwellAccumulationRate);

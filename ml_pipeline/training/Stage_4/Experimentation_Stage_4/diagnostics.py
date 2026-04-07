@@ -1,6 +1,7 @@
 """
 Stage 4: Policy Diagnostics (Notebook §8)
 """
+# Pipeline stage: notebook section 8, deployment simulation and action diagnostics.
 import logging
 import numpy as np
 import matplotlib.pyplot as plt

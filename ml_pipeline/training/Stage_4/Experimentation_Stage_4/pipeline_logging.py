@@ -2,6 +2,7 @@
 Shared logging setup for the Stage 4 experiment scripts.
 Creates one timestamped run log and mirrors stdout/stderr into it.
 """
+# Pipeline support: run-log setup shared by every Stage 4 experiment stage.
 from __future__ import annotations
 
 import logging

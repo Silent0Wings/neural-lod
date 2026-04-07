@@ -1,6 +1,7 @@
 """
 Stage 4: Feature Scaling & Reward Computation (Notebook §3-4)
 """
+# Pipeline stage: notebook sections 3-4, scaler export and reward creation.
 import json
 import numpy as np
 import pandas as pd

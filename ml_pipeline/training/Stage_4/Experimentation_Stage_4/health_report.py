@@ -2,6 +2,7 @@
 Stage 4 run health report.
 Summarizes whether a training run learned usable control or collapsed.
 """
+# Pipeline stage: post-diagnostics health verdict before export decisions.
 from __future__ import annotations
 
 from pathlib import Path

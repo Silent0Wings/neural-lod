@@ -5,6 +5,7 @@ Orchestrates the full notebook pipeline: load → clean → reward → train →
 Usage:
     python run_pipeline.py
 """
+# Pipeline stage: main orchestrator that runs all Stage 4 experiment stages in order.
 import warnings
 warnings.filterwarnings('ignore')
 

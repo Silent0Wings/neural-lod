@@ -35,8 +35,8 @@ public class RLPolicyController : MonoBehaviour
     public ModelAsset onnxAsset;
 
     [Header("Inference")]
-    [Tooltip("Run inference every N frames.")]
-    public int inferenceInterval = 2;
+    // Loaded from scaler JSON through RLFeatureExtractor.
+    private int inferenceInterval => RLFeatureExtractor.InferenceInterval;
 
     [Header("Stability Guardrails")]
     [Tooltip("Loaded from scaler JSON at runtime. Minimum |delta_bias| to apply an update.")]
@@ -48,11 +48,9 @@ public class RLPolicyController : MonoBehaviour
     [Tooltip("Loaded from scaler JSON at runtime. Maximum bias delta magnitude per step.")]
     private float maxActionDelta => RLFeatureExtractor.MaxActionDelta;
 
-    [Tooltip("Absolute minimum lodBias. Below 0.30 the scene becomes visually broken.")]
-    public float biasMin = 0.30f;            // VAR_BIAS_CLAMP lower
+    private float biasMin => RLFeatureExtractor.BiasMin;
 
-    [Tooltip("Absolute maximum lodBias.")]
-    public float biasMax = 2.00f;            // VAR_BIAS_CLAMP upper
+    private float biasMax => RLFeatureExtractor.BiasMax;
 
     [Header("Cumulative Recovery Assist")]
     [Tooltip("Only accumulate upward recovery force while lodBias is at or below this value.")]
