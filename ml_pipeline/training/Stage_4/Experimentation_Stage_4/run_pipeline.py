@@ -23,6 +23,7 @@ from data_loader import load_rollouts, clean_data, compute_t_target
 from reward import fit_scaler, print_data_distribution, compute_rewards
 from train import prepare_returns, split_data, run_optuna, train_final
 from diagnostics import run_diagnostics
+from health_report import write_run_health_report
 from export_onnx import quality_gate, export_onnx
 
 
@@ -30,7 +31,7 @@ skip_optuna = False
 
 skip_diagnostics = False
 
-skip_export = False
+skip_export = True
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run the Stage 4 RL policy training pipeline.')
@@ -120,10 +121,13 @@ def main():
     print('§8: Policy diagnostics')
     print('='*60)
     diag_results = run_diagnostics(model, df_clean, X_scaled, scaler, t_target, group_col, run_plots=run_plots)
+    health_report_path, is_healthy = write_run_health_report(
+        df_clean, history, diag_results, t_target, run_log_path=RUN_LOG_PATH,
+    )
 
     if skip_export:
         print('skip_export=True; stopping before quality gates and ONNX export.')
-        return model, history, diag_results
+        return model, history, diag_results, health_report_path, is_healthy
 
     # §9-10: Quality gates and ONNX export
     print('\n' + '='*60)

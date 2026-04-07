@@ -174,6 +174,7 @@ def eval_metrics(model, X, A, G, df_split, scaler, t_target, group_col, progress
         headroom_neg_pct, near_target_neg_pct, over_budget_pos_pct,
         deploy['r_budget_mean'], deploy['r_quality_mean'], deploy['r_recovery_mean'],
         deploy['r_floor_penalty_mean'], deploy['r_target_zone_mean'],
+        deploy['correct_dir_pct'], deploy['corr_mu_gpu_next'], deploy['r_total_std'],
     )
 
 
@@ -242,6 +243,7 @@ def train_final(study, X_tr_t, A_tr_t, G_tr_t, X_val_t, A_val_t, G_val_t, df_val
         'headroom_neg_pct', 'near_target_neg_pct', 'over_budget_pos_pct',
         'r_budget_mean', 'r_quality_mean', 'r_recovery_mean',
         'r_floor_penalty_mean', 'r_target_zone_mean', 'bc_coef', 'support_coef',
+        'correct_dir_pct', 'corr_mu_gpu_next', 'r_total_std',
     ]}
 
     n = len(X_tr_t)
@@ -267,7 +269,7 @@ def train_final(study, X_tr_t, A_tr_t, G_tr_t, X_val_t, A_val_t, G_val_t, df_val
         scheduler.step()
 
         metrics = eval_metrics(model, X_val_t, A_val_t, G_val_t, df_val, scaler, t_target, group_col)
-        v_loss, mae, support_viol_pct, sat_pct, pos_sat_pct, neg_sat_pct, zero_pct, deploy_mae, deploy_active_pct, mean_deployed_bias, floor_pct, control_mae, mean_mu, neg_mu_pct, pos_mu_pct, headroom_neg_pct, near_target_neg_pct, over_budget_pos_pct, r_budget_mean, r_quality_mean, r_recovery_mean, r_floor_penalty_mean, r_target_zone_mean = metrics
+        v_loss, mae, support_viol_pct, sat_pct, pos_sat_pct, neg_sat_pct, zero_pct, deploy_mae, deploy_active_pct, mean_deployed_bias, floor_pct, control_mae, mean_mu, neg_mu_pct, pos_mu_pct, headroom_neg_pct, near_target_neg_pct, over_budget_pos_pct, r_budget_mean, r_quality_mean, r_recovery_mean, r_floor_penalty_mean, r_target_zone_mean, correct_dir_pct, corr_mu_gpu_next, r_total_std = metrics
 
         train_loss = float(np.mean(t_losses))
         vals = [train_loss, v_loss, mae, control_mae, deploy_mae, support_viol_pct,
@@ -275,7 +277,8 @@ def train_final(study, X_tr_t, A_tr_t, G_tr_t, X_val_t, A_val_t, G_val_t, df_val
                 mean_deployed_bias, floor_pct, mean_mu, neg_mu_pct, pos_mu_pct,
                 headroom_neg_pct, near_target_neg_pct, over_budget_pos_pct,
                 r_budget_mean, r_quality_mean, r_recovery_mean,
-                r_floor_penalty_mean, r_target_zone_mean, bc_coef, support_coef]
+                r_floor_penalty_mean, r_target_zone_mean, bc_coef, support_coef,
+                correct_dir_pct, corr_mu_gpu_next, r_total_std]
         for key, val in zip(history.keys(), vals):
             history[key].append(val)
 

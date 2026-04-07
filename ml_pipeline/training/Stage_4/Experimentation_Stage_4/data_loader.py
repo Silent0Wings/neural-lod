@@ -86,8 +86,14 @@ def load_rollouts() -> pd.DataFrame:
         raw[col] = pd.to_numeric(raw[col], errors='coerce')
 
     print(f'Raw rows   : {len(raw):,}')
-    print(f'Episodes   : {raw["episode"].nunique()}')
     print(f'Files      : {raw["source_file"].nunique()}')
+
+    if raw['episode'].isna().any():
+        missing_count = int(raw['episode'].isna().sum())
+        print(f'Fixing missing episode values: {missing_count:,}')
+        raw['episode'] = rebuild_episodes_from_steps(raw)
+
+    print(f'Episodes   : {raw["episode"].nunique()}')
     print(f'Steps / ep : {raw.groupby("episode").size().mean():.0f}')
 
     if raw['source_file'].nunique() < 2 and raw['episode'].nunique() < 2:
@@ -96,16 +102,31 @@ def load_rollouts() -> pd.DataFrame:
             f'Found files={raw["source_file"].nunique()} episodes={raw["episode"].nunique()}.'
         )
 
-    # Fix missing episode column
-    if raw['episode'].isna().all():
-        print("Fixing missing episode column...")
-        raw['episode'] = (raw['step'] == 0).cumsum()
-        if raw['episode'].nunique() == 1:
-            print("No step reset detected → single episode fallback")
-            raw['episode'] = 0
-
     print("Episodes after fix:", raw['episode'].nunique())
     return raw
+
+
+def rebuild_episodes_from_steps(raw: pd.DataFrame) -> pd.Series:
+    """Rebuild stable episode ids from step resets, per source file."""
+    rebuilt = pd.Series(index=raw.index, dtype='float64')
+    next_episode_id = 0
+
+    for _, grp in raw.groupby('source_file', sort=False):
+        steps = grp['step'].fillna(-1)
+        local_episode = (steps == 0).cumsum()
+        if local_episode.max() == 0:
+            local_episode = pd.Series(1, index=grp.index)
+
+        local_episode = local_episode.astype('int64') - 1
+        rebuilt.loc[grp.index] = local_episode + next_episode_id
+        next_episode_id = int(rebuilt.loc[grp.index].max()) + 1
+
+    if rebuilt.isna().any():
+        raise ValueError('Episode rebuild failed -- some episode ids are still missing.')
+    if rebuilt.nunique() < 2 and raw['source_file'].nunique() < 2:
+        raise ValueError('Episode rebuild produced only one episode and one file; holdout split is unsafe.')
+
+    return rebuilt.astype('int64')
 
 
 def clean_data(raw: pd.DataFrame) -> pd.DataFrame:
@@ -159,17 +180,24 @@ def clean_data(raw: pd.DataFrame) -> pd.DataFrame:
 
 
 def compute_t_target(df_clean: pd.DataFrame) -> float:
-    """Compute dynamic GPU target from data distribution."""
+    """Compute a realistic main GPU target from data distribution."""
     gpu_series = df_clean['gpu_frame_time'].dropna().astype('float32')
     if gpu_series.empty:
         raise ValueError('gpu_frame_time has no valid rows')
 
     p25 = gpu_series.quantile(0.25)
     p40 = gpu_series.quantile(0.40)
-    t_target = float(0.5 * (p25 + p40))
+    median = gpu_series.quantile(0.50)
+    stretch_target = float(0.5 * (p25 + p40))
+    t_target = float(median)
 
-    print(f'T_TARGET (dynamic) = {t_target:.3f} ms')
+    under_target_pct = float((gpu_series <= t_target).mean() * 100)
+    under_stretch_pct = float((gpu_series <= stretch_target).mean() * 100)
+
+    print(f'T_TARGET (median/main) = {t_target:.3f} ms')
+    print(f'Stretch target p25/p40 = {stretch_target:.3f} ms ({under_stretch_pct:.1f}% under)')
+    print(f'Under main target      = {under_target_pct:.1f}%')
     print(f'GPU stats | mean={gpu_series.mean():.3f} '
-          f'median={gpu_series.median():.3f} '
+          f'median={median:.3f} '
           f'p25={p25:.3f} p40={p40:.3f} p75={gpu_series.quantile(0.75):.3f}')
     return t_target

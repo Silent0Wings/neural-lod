@@ -168,6 +168,7 @@ def deployment_metrics(model, df_split, scaler, t_target, group_col='source_file
             'deploy_mae', 'deploy_active_pct', 'deploy_std', 'mean_deployed_bias',
             'floor_pct', 'r_budget_mean', 'r_quality_mean', 'r_recovery_mean',
             'r_floor_penalty_mean', 'r_target_zone_mean',
+            'correct_dir_pct', 'corr_mu_gpu_next', 'r_total_std',
         ]}
 
     actual = deploy_df['action_delta'].values.astype(np.float32)
@@ -186,7 +187,9 @@ def deployment_metrics(model, df_split, scaler, t_target, group_col='source_file
         corr = np.corrcoef(applied, gpu_next)[0, 1]
     else:
         corr = 0.0
-    print(f"[Phase 4] Corr(mu, gpu_next): {corr:.3f} | r_total.std: {(r_dir + r_floor_pen).std():.3f} | CorrectDir%: {correct.mean():.3f}")
+    r_total_std = float((r_dir + r_floor_pen).std())
+    correct_dir_pct = float(correct.mean() * 100.0)
+    print(f"[Phase 4] Corr(mu, gpu_next): {corr:.3f} | r_total.std: {r_total_std:.3f} | CorrectDir%: {correct.mean():.3f}")
 
     return {
         'deploy_mae': float(np.mean(np.abs(applied - actual))),
@@ -199,6 +202,9 @@ def deployment_metrics(model, df_split, scaler, t_target, group_col='source_file
         'r_recovery_mean': 0.0,
         'r_floor_penalty_mean': float(np.mean(r_floor_pen)),
         'r_target_zone_mean': 0.0,
+        'correct_dir_pct': correct_dir_pct,
+        'corr_mu_gpu_next': float(corr),
+        'r_total_std': r_total_std,
     }
 
 
