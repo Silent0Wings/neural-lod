@@ -172,6 +172,7 @@ public class RLFeatureExtractor : MonoBehaviour
     public string SelectedTargetSource => _nullCollectionMode
         ? (SceneTargetReady ? "null_scene_warmup" : "null_json_bootstrap")
         : "json_training";
+    public string CollectionMode => _nullCollectionMode ? "null_rl" : "active_rl";
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
 

@@ -6,7 +6,7 @@ using Unity.InferenceEngine;
 //
 // At each inference step:
 //   1. Read normalized state from RLFeatureExtractor.
-//   2. Run ONNX policy → raw bias delta in [-0.20, +0.20].
+//   2. Run ONNX policy -> raw bias delta in [-0.20, +0.20].
 //   3. Apply stability guardrails: dead zone → dwell guard → bias clamp.
 //   4. Write applied delta to RLRolloutLogger.LastActionDelta for CSV logging.
 //
@@ -17,10 +17,10 @@ using Unity.InferenceEngine;
 //   Action range: [-0.20, +0.20] clamped from raw model output.
 //
 // Fallback policy (no ONNX assigned):
-//   Rule-based baseline matching the project spec:
-//     if fps < 45 → decrease bias by 0.05 (clamped to guardrails)
-//     else        → increase bias by 0.05 (clamped to guardrails)
-//   Use for initial data collection before any ONNX policy is trained.
+//   Rule-based baseline for initial null-model data collection:
+//     if gpu_ms > SelectedTargetMs -> decrease bias by 0.05 (clamped to guardrails)
+//     else                        -> increase bias by 0.05 (clamped to guardrails)
+//   This keeps collection labels aligned with GPU-ms training rewards.
 //
 // Note: Training uses a custom PyTorch REINFORCE notebook (not Unity ML-Agents CLI).
 //       The ONNX exported from that notebook is loaded here via Unity Inference Engine.
@@ -107,6 +107,7 @@ public class RLPolicyController : MonoBehaviour
     private bool _targetLogged = false;
 
     private const int INPUT_DIM = RLFeatureExtractor.FEATURE_COUNT;
+    private const float RULE_BASED_FALLBACK_STEP = 0.05f;
     public bool UsesRuleBasedFallback => onnxAsset == null;
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
@@ -127,8 +128,14 @@ public class RLPolicyController : MonoBehaviour
         {
             _activeMode = "rule-based";
             Debug.LogWarning("[RLPolicyController] No ONNX asset assigned. " +
-                             "Using rule-based fallback (fps < 45 → reduce bias). " +
+                             "Using rule-based fallback (gpu_ms > selected target -> reduce bias). " +
                              "Assign onnxAsset after training to switch to neural mode.");
+
+            if (recoveryGrowthThreshold >= RULE_BASED_FALLBACK_STEP)
+            {
+                Debug.LogWarning("[RLPolicyController] recoveryGrowthThreshold >= fallback step. " +
+                                 "Recovery assist may amplify rule-based actions unexpectedly.");
+            }
         }
 
         _currentBias     = QualitySettings.lodBias;
@@ -147,6 +154,7 @@ public class RLPolicyController : MonoBehaviour
         // controller evaluation points instead of every render frame.
         if (_logger != null)
         {
+            _logger.LastRawActionDelta = 0f;
             _logger.LastActionDelta = 0f;
             _logger.ShouldLogDecisionFrame = false;
         }
@@ -166,6 +174,9 @@ public class RLPolicyController : MonoBehaviour
             : GetRuleBasedDelta();
 
         _rawDelta = delta;
+        if (_logger != null)
+            _logger.LastRawActionDelta = delta;
+
         ApplyWithGuardrails(delta);
     }
 
@@ -191,7 +202,10 @@ public class RLPolicyController : MonoBehaviour
         _downwardCorrectionScalar = 1.0f;
 
         if (_logger != null)
+        {
+            _logger.LastRawActionDelta = 0f;
             _logger.LastActionDelta = 0f;
+        }
 
         Debug.Log("[RLPolicyController] Episode reset. lodBias → 1.0.");
     }
@@ -253,10 +267,10 @@ public class RLPolicyController : MonoBehaviour
 
     private float GetRuleBasedDelta()
     {
-        // Spec baseline: "if fps < 45 → decrease bias (simple threshold)"
-        float fps = _extractor.RawFeatures != null ? _extractor.RawFeatures[2] : 60f;
-        float step = 0.05f;
-        return fps < 45f ? -step : step;
+        // Null collection labels must use the same GPU-ms signal as training rewards.
+        float gpuMs = _extractor != null ? _extractor.GpuFrameTime : 0f;
+        float target = SelectedTargetMs;
+        return gpuMs > target ? -RULE_BASED_FALLBACK_STEP : RULE_BASED_FALLBACK_STEP;
     }
 
     // ── Stability Guardrails ───────────────────────────────────────────────

@@ -46,9 +46,15 @@ public class RLRolloutLogger : MonoBehaviour
 
     /// <summary>
     /// Written by RLPolicyController each step before LateUpdate runs.
-    /// Logged as action_delta in the rollout CSV.
+    /// Logged as action_delta in the rollout CSV after guardrails are applied.
     /// </summary>
     [HideInInspector] public float LastActionDelta = 0f;
+
+    /// <summary>
+    /// Written by RLPolicyController each decision before guardrails run.
+    /// Logged as raw_action_delta in the rollout CSV for diagnostics only.
+    /// </summary>
+    [HideInInspector] public float LastRawActionDelta = 0f;
 
     /// <summary>
     /// Written by RLPolicyController.ApplyWithGuardrails() before the action is applied.
@@ -131,8 +137,14 @@ public class RLRolloutLogger : MonoBehaviour
             "floor_dwell_score," +
             "ceiling_dwell_score," +
             "lod_bias_before_action," +
-            "action_delta," +          // bias delta output by policy
-            "lod_bias_after_action"
+            "raw_action_delta," +      // pre-guardrail policy/fallback intent
+            "action_delta," +          // applied bias delta after guardrails
+            "lod_bias_after_action," +
+            "selected_target_ms," +
+            "target_source," +
+            "scene_target_ready," +
+            "collection_mode," +
+            "gpu_ms_at_target_lock"
         );
 
         Debug.Log($"[RLRolloutLogger] Episode {_episodeIndex} started → {_currentFilePath}");
@@ -162,6 +174,7 @@ public class RLRolloutLogger : MonoBehaviour
 
         // Reset environment for next episode
         QualitySettings.lodBias = 1.0f;
+        LastRawActionDelta      = 0f;
         LastActionDelta         = 0f;
         _extractor.ResetEpisodeState();
         _policyController?.ResetEpisode(); // sync bias + dwell counter in controller
@@ -191,10 +204,15 @@ public class RLRolloutLogger : MonoBehaviour
 
         float biasAfter  = QualitySettings.lodBias;
         float biasBefore = LastBiasBeforeAction;  // snapshotted in RLPolicyController.ApplyWithGuardrails()
+        float selectedTargetMs = _extractor.SelectedTargetMs;
+        string targetSource = _extractor.SelectedTargetSource;
+        int sceneTargetReady = RLFeatureExtractor.SceneTargetReady ? 1 : 0;
+        string collectionMode = _extractor.CollectionMode;
+        float gpuMsAtTargetLock = RLFeatureExtractor.SceneTargetReady ? RLFeatureExtractor.SceneTTargetMs : float.NaN;
 
         // Write row in invariant culture (period decimal separator)
         string row = string.Format(CultureInfo.InvariantCulture,
-            "{0},{1},{2:F4},{3:F4},{4:F2},{5:F0},{6:F0},{7:F0},{8:F4},{9:F4},{10:F6},{11:F4},{12:F0},{13:F4},{14:F4},{15:F4},{16:F4},{17:F4}",
+            "{0},{1},{2:F4},{3:F4},{4:F2},{5:F0},{6:F0},{7:F0},{8:F4},{9:F4},{10:F6},{11:F4},{12:F0},{13:F4},{14:F4},{15:F4},{16:F4},{17:F4},{18:F4},{19:F4},{20},{21},{22},{23:F4}",
             _episodeIndex,          // 0  episode
             _stepIndex,             // 1  step
             cpuMs,                  // 2  cpu_frame_time
@@ -211,8 +229,14 @@ public class RLRolloutLogger : MonoBehaviour
             raw[11],                // 13 floor_dwell_score
             raw[12],                // 14 ceiling_dwell_score
             biasBefore,             // 15 lod_bias_before_action
-            LastActionDelta,        // 16 action_delta
-            biasAfter               // 17 lod_bias_after_action
+            LastRawActionDelta,     // 16 raw_action_delta
+            LastActionDelta,        // 17 action_delta
+            biasAfter,              // 18 lod_bias_after_action
+            selectedTargetMs,       // 19 selected_target_ms
+            targetSource,           // 20 target_source
+            sceneTargetReady,       // 21 scene_target_ready
+            collectionMode,         // 22 collection_mode
+            gpuMsAtTargetLock       // 23 gpu_ms_at_target_lock
         );
 
         _rowBuffer.Add(row);

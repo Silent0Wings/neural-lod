@@ -19,6 +19,15 @@ REQUIRED_ROLLOUT_COLUMNS = {
     'lod_bias_before_action', 'action_delta', 'lod_bias_after_action',
 }
 
+OPTIONAL_PROVENANCE_COLUMNS = {
+    'raw_action_delta': np.nan,
+    'selected_target_ms': np.nan,
+    'target_source': 'legacy_unknown',
+    'scene_target_ready': 1,
+    'collection_mode': 'legacy_unknown',
+    'gpu_ms_at_target_lock': np.nan,
+}
+
 
 def add_bias_dwell_features(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
     """Compute floor/ceiling dwell scores per sequence group."""
@@ -75,6 +84,9 @@ def load_rollouts() -> pd.DataFrame:
         dfs.append(df)
 
     raw = pd.concat(dfs, ignore_index=True)
+    for col, default in OPTIONAL_PROVENANCE_COLUMNS.items():
+        if col not in raw.columns:
+            raw[col] = default
 
     numeric_cols = [
         'episode', 'step', 'cpu_frame_time', 'gpu_frame_time', 'fps',
@@ -82,9 +94,15 @@ def load_rollouts() -> pd.DataFrame:
         'camera_speed', 'camera_rotation_speed', 'avg_screen_coverage',
         'previous_bias', 'recent_lod_switch_count',
         'lod_bias_before_action', 'action_delta', 'lod_bias_after_action',
+        'raw_action_delta', 'selected_target_ms', 'scene_target_ready', 'gpu_ms_at_target_lock',
     ]
     for col in numeric_cols:
         raw[col] = pd.to_numeric(raw[col], errors='coerce')
+
+    raw['raw_action_delta'] = raw['raw_action_delta'].fillna(raw['action_delta'])
+    raw['scene_target_ready'] = raw['scene_target_ready'].fillna(1).astype('int32')
+    raw['target_source'] = raw['target_source'].fillna('legacy_unknown').astype(str)
+    raw['collection_mode'] = raw['collection_mode'].fillna('legacy_unknown').astype(str)
 
     print(f'Raw rows   : {len(raw):,}')
     print(f'Files      : {raw["source_file"].nunique()}')
@@ -132,6 +150,8 @@ def rebuild_episodes_from_steps(raw: pd.DataFrame) -> pd.Series:
 
 def clean_data(raw: pd.DataFrame) -> pd.DataFrame:
     """Remove invalid timing rows, add dwell features, validate."""
+    dropped_pre_target_lock_rows = 0
+
     df_clean = raw[
         (raw['cpu_frame_time'] > 0)
         & (raw['gpu_frame_time'] >= GPU_VALID_MIN_MS)
@@ -154,11 +174,26 @@ def clean_data(raw: pd.DataFrame) -> pd.DataFrame:
     if len(df_clean) == 0:
         raise ValueError('All rows removed after NaN drop')
 
+    collection_mode = df_clean['collection_mode'].fillna('legacy_unknown').astype(str).str.lower()
+    scene_target_ready = pd.to_numeric(df_clean['scene_target_ready'], errors='coerce').fillna(1)
+    pre_target_lock = collection_mode.eq('null_rl') & scene_target_ready.eq(0)
+    dropped_pre_target_lock_rows = int(pre_target_lock.sum())
+    if dropped_pre_target_lock_rows:
+        df_clean = df_clean.loc[~pre_target_lock].copy()
+        print(f'Dropped pre-target-lock null rows: {dropped_pre_target_lock_rows:,}')
+    else:
+        print('Dropped pre-target-lock null rows: 0')
+
+    if len(df_clean) == 0:
+        raise ValueError('All rows removed after dropping pre-target-lock null rows')
+
     sequence_group_col = 'source_file' if 'source_file' in df_clean.columns else 'episode'
     df_clean = df_clean.sort_values([sequence_group_col, 'step']).reset_index(drop=True)
 
     # Add dwell features
     df_clean = add_bias_dwell_features(df_clean, sequence_group_col)
+    df_clean['reward_target_ms'] = pd.to_numeric(df_clean['selected_target_ms'], errors='coerce').astype('float32')
+    df_clean.attrs['dropped_pre_target_lock_rows'] = dropped_pre_target_lock_rows
 
     # Validate features
     a = pd.to_numeric(df_clean['action_delta'], errors='coerce').fillna(0).astype('float32')
@@ -181,23 +216,40 @@ def clean_data(raw: pd.DataFrame) -> pd.DataFrame:
 
 
 def compute_t_target(df_clean: pd.DataFrame) -> float:
-    """Compute a realistic main GPU target from data distribution."""
+    """Compute the main GPU target from rollout metadata, falling back to GPU median."""
     gpu_series = df_clean['gpu_frame_time'].dropna().astype('float32')
     if gpu_series.empty:
         raise ValueError('gpu_frame_time has no valid rows')
+
+    if 'reward_target_ms' in df_clean.columns:
+        reward_target = pd.to_numeric(df_clean['reward_target_ms'], errors='coerce')
+        valid_reward_target = reward_target.dropna().astype('float32')
+    else:
+        valid_reward_target = pd.Series(dtype='float32')
 
     p25 = gpu_series.quantile(0.25)
     p40 = gpu_series.quantile(0.40)
     median = gpu_series.quantile(0.50)
     stretch_target = float(0.5 * (p25 + p40))
-    t_target = float(median)
+
+    if len(valid_reward_target):
+        t_target = float(valid_reward_target.median())
+        target_basis = 'rollout reward_target_ms median'
+    else:
+        t_target = float(median)
+        target_basis = 'legacy gpu_frame_time median'
 
     under_target_pct = float((gpu_series <= t_target).mean() * 100)
     under_stretch_pct = float((gpu_series <= stretch_target).mean() * 100)
 
-    print(f'T_TARGET (median/main) = {t_target:.3f} ms')
+    print(f'T_TARGET ({target_basis}) = {t_target:.3f} ms')
     print(f'Stretch target p25/p40 = {stretch_target:.3f} ms ({under_stretch_pct:.1f}% under)')
     print(f'Under main target      = {under_target_pct:.1f}%')
+    if len(valid_reward_target):
+        print(f'Reward target stats | min={valid_reward_target.min():.3f} '
+              f'median={valid_reward_target.median():.3f} '
+              f'max={valid_reward_target.max():.3f} '
+              f'valid_rows={len(valid_reward_target):,}/{len(df_clean):,}')
     print(f'GPU stats | mean={gpu_series.mean():.3f} '
           f'median={median:.3f} '
           f'p25={p25:.3f} p40={p40:.3f} p75={gpu_series.quantile(0.75):.3f}')

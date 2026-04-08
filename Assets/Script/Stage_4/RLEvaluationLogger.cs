@@ -47,6 +47,9 @@ public class RLEvaluationLogger : MonoBehaviour
     [Header("Reward (Improvement-Based)")]
     [Tooltip("All reward and control parameters loaded from scaler JSON.")]
     private float tTargetMs => _extractor != null ? _extractor.SelectedTargetMs : RLFeatureExtractor.GpuTargetMsBase;
+    private string targetSource => _extractor != null ? _extractor.SelectedTargetSource : "json_training";
+    private int sceneTargetReady => RLFeatureExtractor.SceneTargetReady ? 1 : 0;
+    private string collectionMode => _extractor != null ? _extractor.CollectionMode : "active_rl";
     private float deadZone => RLFeatureExtractor.DeadZone;
     private int dwellFrames => RLFeatureExtractor.DwellFrames;
     [Tooltip("Bonus added to reward when gpu_ms <= tTargetMs.")]
@@ -115,6 +118,8 @@ public class RLEvaluationLogger : MonoBehaviour
     private int   _switchTotal     = 0;
     private float _prevScreenCov   = -1f;   // for coverage delta column
     private float _prevGpuMs       = -1f;   // for improvement-based reward (gpu_prev - gpu_t)
+    private float _targetStartMs   = 0f;
+    private string _targetSourceStart = "unknown";
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -162,7 +167,11 @@ public class RLEvaluationLogger : MonoBehaviour
             "cumulative_return," +
             "screen_coverage," +      // SSIM proxy value
             "screen_coverage_delta," +// SSIM proxy delta (coverage change)
-            "recent_switch_count"
+            "recent_switch_count," +
+            "selected_target_ms," +
+            "target_source," +
+            "scene_target_ready," +
+            "collection_mode"
         );
 
         // Per-episode header
@@ -176,7 +185,12 @@ public class RLEvaluationLogger : MonoBehaviour
             "mean_lod_bias," +
             "action_mean," +
             "action_variance," +      // policy stability metric
-            "switch_count_total"
+            "switch_count_total," +
+            "target_start_ms," +
+            "target_end_ms," +
+            "target_source_start," +
+            "target_source_end," +
+            "scene_target_ready_end"
         );
 
         FrameTimingManager.CaptureFrameTimings();
@@ -306,7 +320,7 @@ public class RLEvaluationLogger : MonoBehaviour
 
         // Write per-step row
         _stepWriter.WriteLine(string.Format(CultureInfo.InvariantCulture,
-            "{0},{1},{2},{3:F4},{4:F4},{5:F2},{6:F4},{7:F4},{8:F6},{9:F6},{10:F6},{11:F6},{12:F0}",
+            "{0},{1},{2},{3:F4},{4:F4},{5:F2},{6:F4},{7:F4},{8:F6},{9:F6},{10:F6},{11:F6},{12:F0},{13:F4},{14},{15},{16}",
             runLabel,
             _episodeIndex,
             _frameInEp,
@@ -319,7 +333,11 @@ public class RLEvaluationLogger : MonoBehaviour
             _episodeReturn,
             screenCov,
             coverageDelta,
-            recentSwitches
+            recentSwitches,
+            tTargetMs,
+            targetSource,
+            sceneTargetReady,
+            collectionMode
         ));
 
         _frameInEp++;
@@ -347,7 +365,7 @@ public class RLEvaluationLogger : MonoBehaviour
         actionVariance = Mathf.Max(0f, actionVariance); // numerical safety
 
         _epWriter.WriteLine(string.Format(CultureInfo.InvariantCulture,
-            "{0},{1},{2},{3:F6},{4:F4},{5:F2},{6:F4},{7:F6},{8:F6},{9:F0}",
+            "{0},{1},{2},{3:F6},{4:F4},{5:F2},{6:F4},{7:F6},{8:F6},{9:F0},{10:F4},{11:F4},{12},{13},{14}",
             runLabel,
             _episodeIndex,
             _frameInEp,
@@ -357,7 +375,12 @@ public class RLEvaluationLogger : MonoBehaviour
             meanBias,
             actionMean,
             actionVariance,
-            _switchTotal
+            _switchTotal,
+            _targetStartMs,
+            tTargetMs,
+            _targetSourceStart,
+            targetSource,
+            sceneTargetReady
         ));
 
         _epWriter.Flush();
@@ -384,6 +407,8 @@ public class RLEvaluationLogger : MonoBehaviour
         _switchTotal   = 0;
         _prevScreenCov = -1f;
         _prevGpuMs     = -1f;
+        _targetStartMs = tTargetMs;
+        _targetSourceStart = targetSource;
     }
 
     // ── IO Helpers ─────────────────────────────────────────────────────────
