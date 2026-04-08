@@ -37,6 +37,16 @@ def fit_scaler(df_clean: pd.DataFrame, t_target: float, run_plots: bool = True):
     if zero_scale:
         raise ValueError(f'Zero-scale features detected: {zero_scale}')
 
+    reward_target = pd.to_numeric(df_clean.get('reward_target_ms'), errors='coerce') \
+        if 'reward_target_ms' in df_clean.columns else pd.Series(dtype='float32')
+    valid_reward_target = reward_target.dropna().astype('float32')
+    target_export_source = 'reward_target_ms_median' if len(valid_reward_target) else 'legacy_gpu_frame_median'
+    if len(valid_reward_target):
+        print(f'Export target source: {target_export_source} '
+              f'median={valid_reward_target.median():.3f} rows={len(valid_reward_target):,}/{len(df_clean):,}')
+    else:
+        print(f'Export target source: {target_export_source} t_target={float(t_target):.3f}')
+
     scaler_data = {
         'feature_names': FEATURE_COLS,
         'mean': scaler.mean_.tolist(),
@@ -67,6 +77,7 @@ def fit_scaler(df_clean: pd.DataFrame, t_target: float, run_plots: bool = True):
         'exploration_action_regularization': 0.05,
         'recovery_action_regularization': 0.1,
         'target_source': 'json_training',
+        'training_target_source': target_export_source,
         'collection_mode': 'active_rl',
         'scene_target_warmup_frames': 64,
     }
@@ -107,24 +118,36 @@ def print_data_distribution(df_clean: pd.DataFrame, t_target: float):
     for source_file in df_clean['source_file'].unique():
         subset = df_clean[df_clean['source_file'] == source_file]
         gpu = subset['gpu_frame_time']
+        target = pd.to_numeric(subset['reward_target_ms'], errors='coerce').fillna(float(t_target)) \
+            if 'reward_target_ms' in subset.columns else pd.Series(float(t_target), index=subset.index)
         print(f"\n{source_file}:")
         print(f"  Frames: {len(subset):,}")
         print(f"  GPU mean: {gpu.mean():.2f} ms")
-        print(f"  Over-budget (>{t_target:.3f}ms): {(gpu > t_target).mean() * 100:.1f}%")
-        print(f"  Under-budget (<={t_target:.3f}ms): {(gpu <= t_target).mean() * 100:.1f}%")
+        print(f"  Over-budget: {(gpu > target).mean() * 100:.1f}%")
+        print(f"  Under-budget: {(gpu <= target).mean() * 100:.1f}%")
 
     print(f"\nTotal frames: {len(df_clean):,}")
-    overall_over = (df_clean['gpu_frame_time'] > t_target).mean() * 100
-    overall_under = (df_clean['gpu_frame_time'] <= t_target).mean() * 100
-    print(f"Overall over-budget (>{t_target:.3f}ms): {overall_over:.1f}%")
-    print(f"Overall under-budget (<={t_target:.3f}ms): {overall_under:.1f}%")
+    target = pd.to_numeric(df_clean['reward_target_ms'], errors='coerce').fillna(float(t_target)) \
+        if 'reward_target_ms' in df_clean.columns else pd.Series(float(t_target), index=df_clean.index)
+    overall_over = (df_clean['gpu_frame_time'] > target).mean() * 100
+    overall_under = (df_clean['gpu_frame_time'] <= target).mean() * 100
+    print(f"Overall over-budget: {overall_over:.1f}%")
+    print(f"Overall under-budget: {overall_under:.1f}%")
 
 
 def compute_rewards(df_clean: pd.DataFrame, t_target: float) -> pd.DataFrame:
     """Compute budget-tracking rewards with quality preservation."""
+    attrs = dict(df_clean.attrs)
     df_clean = df_clean.sort_values(['episode', 'step']).reset_index(drop=True)
 
     gpu = df_clean['gpu_frame_time'].values.astype('float32')
+    if 'reward_target_ms' in df_clean.columns:
+        target = pd.to_numeric(df_clean['reward_target_ms'], errors='coerce').fillna(float(t_target)).values.astype('float32')
+    else:
+        target = np.full(len(df_clean), float(t_target), dtype='float32')
+    if np.any(target <= 0):
+        raise ValueError('reward_target_ms contains non-positive values after fallback fill')
+
     coverage = df_clean['avg_screen_coverage'].values.astype('float32')
     bias_before = df_clean['lod_bias_before_action'].values.astype('float32')
     bias_after = df_clean['lod_bias_after_action'].values.astype('float32')
@@ -133,11 +156,11 @@ def compute_rewards(df_clean: pd.DataFrame, t_target: float) -> pd.DataFrame:
     coverage_scale = max(coverage_q95, 1e-4)
     bias_norm = np.clip((bias_after - BIAS_MIN) / max(BIAS_MAX - BIAS_MIN, 1e-6), 0.0, 1.0).astype('float32')
 
-    over_budget = np.clip(gpu - t_target, 0.0, None).astype('float32')
-    under_budget = np.clip(t_target - gpu, 0.0, None).astype('float32')
+    over_budget = np.clip(gpu - target, 0.0, None).astype('float32')
+    under_budget = np.clip(target - gpu, 0.0, None).astype('float32')
     under_budget_headroom = (under_budget >= UNDER_BUDGET_MARGIN).astype('float32')
 
-    target_proximity = np.exp(-((gpu - t_target) ** 2) / (2.0 * TARGET_PROX_SIGMA ** 2)).astype('float32')
+    target_proximity = np.exp(-((gpu - target) ** 2) / (2.0 * TARGET_PROX_SIGMA ** 2)).astype('float32')
     r_budget = (
         BONUS_SCALE * target_proximity
         - OVER_BUDGET_COEF * over_budget
@@ -162,5 +185,7 @@ def compute_rewards(df_clean: pd.DataFrame, t_target: float) -> pd.DataFrame:
         )
 
     df_clean = df_clean.copy()
+    df_clean.attrs.update(attrs)
+    df_clean['reward_target_ms'] = target
     df_clean['reward'] = rewards
     return df_clean

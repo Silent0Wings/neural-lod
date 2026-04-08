@@ -69,6 +69,11 @@ def main():
     print('='*60)
     raw = load_rollouts()
     df_clean = clean_data(raw)
+    training_target_source = (
+        'rollout_reward_target_ms'
+        if 'reward_target_ms' in df_clean.columns and df_clean['reward_target_ms'].notna().any()
+        else 'legacy_gpu_frame_median'
+    )
 
     # §3: Compute GPU target and fit scaler
     print('\n' + '='*60)
@@ -123,7 +128,7 @@ def main():
     print('='*60)
     diag_results = run_diagnostics(model, df_clean, X_scaled, scaler, t_target, group_col, run_plots=run_plots)
     health_report_path, is_healthy = write_run_health_report(
-        df_clean, history, diag_results, t_target, run_log_path=RUN_LOG_PATH, target_source='json_training',
+        df_clean, history, diag_results, t_target, run_log_path=RUN_LOG_PATH, target_source=training_target_source,
     )
 
     if skip_export:

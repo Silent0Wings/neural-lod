@@ -10,10 +10,10 @@ using System.Globalization;
 // The Python training notebook reads these files, applies df_samples_clean filtering
 // to remove corrupt GPU readings, then computes per-step improvement-based rewards:
 //
-//   r_t = (gpu_prev - gpu_frame_time) + BONUS_SCALE * (gpu_frame_time <= 4.5)
+//   r_t = (gpu_prev - gpu_frame_time) + BONUS_SCALE * (gpu_frame_time <= selected_target_ms)
 //   clipped to [-5.0, +5.0]
 //
-// t_target = 4.5 ms (VAR_T_TARGET_MS). Use gpu_frame_time ONLY — not cpu_frame_time.
+// Use gpu_frame_time ONLY — not cpu_frame_time. The selected target is logged per row.
 // Switch penalty REMOVED (gamma=0): penalising switches caused policy inaction collapse.
 //
 // Camera pitch is restricted to {-15, 0, +15} degrees in the scene's CameraPathAnimator.

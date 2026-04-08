@@ -46,7 +46,9 @@ def prepare_returns(df_clean):
     if 'reward' not in df_clean.columns:
         raise ValueError("'reward' column missing -- run reward computation first")
 
+    attrs = dict(df_clean.attrs)
     df_clean = df_clean.sort_values(['episode', 'step']).reset_index(drop=True)
+    df_clean.attrs.update(attrs)
     returns_list = []
     for _, grp in df_clean.groupby('episode', sort=False):
         returns_list.append(compute_returns(grp['reward'].values, GAMMA_RL))

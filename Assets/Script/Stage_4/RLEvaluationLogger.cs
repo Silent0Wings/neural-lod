@@ -27,7 +27,7 @@ using System.Globalization;
 //
 // Baselines to compare against (same CSV format, different runLabel):
 //   unity_default    : lodBias=1.0, no controller
-//   rule_based       : fps<45 → decrease (RLPolicyController fallback mode)
+//   rule_based       : gpu_ms > selected_target_ms -> decrease (RLPolicyController fallback mode)
 //   stage2_mlp       : Stage 2 supervised MLP oracle (RuntimeLODApplicator)
 //   random_policy    : Uniform random bias in [0.30, 2.00]
 
@@ -120,6 +120,7 @@ public class RLEvaluationLogger : MonoBehaviour
     private float _prevGpuMs       = -1f;   // for improvement-based reward (gpu_prev - gpu_t)
     private float _targetStartMs   = 0f;
     private string _targetSourceStart = "unknown";
+    private bool _episodeTargetStartCaptured = false;
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -271,6 +272,13 @@ public class RLEvaluationLogger : MonoBehaviour
         float lodBias    = QualitySettings.lodBias;
         float actionDelta = _rolloutLogger != null ? _rolloutLogger.LastActionDelta : 0f;
 
+        if (!_episodeTargetStartCaptured)
+        {
+            _targetStartMs = tTargetMs;
+            _targetSourceStart = targetSource;
+            _episodeTargetStartCaptured = true;
+        }
+
         float[] raw = _extractor.RawFeatures;
         float screenCov      = raw != null ? raw[8] : 0f;
         float recentSwitches = raw != null ? raw[10] : 0f;
@@ -409,6 +417,7 @@ public class RLEvaluationLogger : MonoBehaviour
         _prevGpuMs     = -1f;
         _targetStartMs = tTargetMs;
         _targetSourceStart = targetSource;
+        _episodeTargetStartCaptured = false;
     }
 
     // ── IO Helpers ─────────────────────────────────────────────────────────

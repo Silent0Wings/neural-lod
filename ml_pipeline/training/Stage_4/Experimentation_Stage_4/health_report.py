@@ -66,6 +66,29 @@ def build_run_health_report(
     actions = df_clean["action_delta"].astype("float32")
     near_zero_action_pct = float((actions.abs() < 0.005).mean() * 100.0)
 
+    if "target_source" in df_clean.columns:
+        target_source_counts = df_clean["target_source"].fillna("unknown").astype(str).value_counts(dropna=False)
+        target_source_summary = ", ".join(
+            f"{name}={count}" for name, count in target_source_counts.items()
+        )
+    else:
+        target_source_summary = "unavailable"
+
+    if "reward_target_ms" in df_clean.columns:
+        reward_target = df_clean["reward_target_ms"].astype("float32").dropna()
+    else:
+        reward_target = []
+    if len(reward_target):
+        reward_target_summary = (
+            f"min={float(reward_target.min()):.3f}, "
+            f"median={float(reward_target.median()):.3f}, "
+            f"max={float(reward_target.max()):.3f}"
+        )
+    else:
+        reward_target_summary = "unavailable"
+
+    dropped_pre_target_lock_rows = int(df_clean.attrs.get("dropped_pre_target_lock_rows", 0))
+
     checks = []
     checks.append((
         "Direction learning",
@@ -113,6 +136,9 @@ def build_run_health_report(
         "",
         f"- T_TARGET: `{float(t_target):.3f} ms`",
         f"- Target source: `{target_source}`",
+        f"- Target source counts: `{target_source_summary}`",
+        f"- Reward target ms: `{reward_target_summary}`",
+        f"- Dropped pre-target-lock null rows: `{dropped_pre_target_lock_rows:,}`",
         f"- Final deploy_MAE: `{float(diag_results.get('deploy_mae_all', avg_deploy_mae)):.4f}`",
         f"- Final deploy_active%: `{float(diag_results.get('deploy_active_pct', 0.0)):.2f}%`",
         f"- Final floor%: `{float(diag_results.get('floor_pct', avg_floor_pct)):.2f}%`",
