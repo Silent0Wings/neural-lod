@@ -127,7 +127,7 @@ def reinforce_loss(model, X, A, G, scaler, t_target, bc_coef=1.0, support_coef=0
     
     outside_support_penalty = torch.mean(torch.relu(torch.abs(mu) - SOFT_SUPPORT_LIMIT) ** 2)
 
-    return (imitation_loss) + (support_coef * outside_support_penalty)
+    return (imitation_loss)
 
 
 def eval_metrics(model, X, A, G, df_split, scaler, t_target, group_col, progress=1.0):
