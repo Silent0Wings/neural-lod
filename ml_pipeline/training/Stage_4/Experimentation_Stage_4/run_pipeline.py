@@ -123,7 +123,7 @@ def main():
     print('='*60)
     diag_results = run_diagnostics(model, df_clean, X_scaled, scaler, t_target, group_col, run_plots=run_plots)
     health_report_path, is_healthy = write_run_health_report(
-        df_clean, history, diag_results, t_target, run_log_path=RUN_LOG_PATH,
+        df_clean, history, diag_results, t_target, run_log_path=RUN_LOG_PATH, target_source='json_training',
     )
 
     if skip_export:

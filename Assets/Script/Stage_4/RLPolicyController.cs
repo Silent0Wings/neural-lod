@@ -104,8 +104,10 @@ public class RLPolicyController : MonoBehaviour
     private Model  _model;
 
     private int _lastSwitchFrame;
+    private bool _targetLogged = false;
 
     private const int INPUT_DIM = RLFeatureExtractor.FEATURE_COUNT;
+    public bool UsesRuleBasedFallback => onnxAsset == null;
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -150,6 +152,7 @@ public class RLPolicyController : MonoBehaviour
         }
 
         if (!_extractor.IsReady) return;
+        LogTargetContractOnce();
         if (Time.frameCount % inferenceInterval != 0) return;
 
         float gpuMs = _extractor.GpuFrameTime;
@@ -313,8 +316,9 @@ public class RLPolicyController : MonoBehaviour
 
     private float ApplyCumulativeRecoveryAssist(float rawDelta, float gpuMs, float currentBias)
     {
-        float upwardResetGpuThreshold = TTargetMs - recoveryBudgetResetMargin;
-        float downwardResetGpuThreshold = TTargetMs + recoveryBudgetResetMargin;
+        float targetMs = SelectedTargetMs;
+        float upwardResetGpuThreshold = targetMs - recoveryBudgetResetMargin;
+        float downwardResetGpuThreshold = targetMs + recoveryBudgetResetMargin;
         bool upwardBudgetReached = gpuMs >= upwardResetGpuThreshold;
         bool downwardBudgetReached = gpuMs <= downwardResetGpuThreshold;
         bool lowBias = currentBias <= recoveryEligibleBias;
@@ -389,5 +393,17 @@ public class RLPolicyController : MonoBehaviour
         return Mathf.Clamp(assistedDelta, -maxActionDelta, maxActionDelta);
     }
 
-    private float TTargetMs => RLFeatureExtractor.TTargetMs;
+    private void LogTargetContractOnce()
+    {
+        if (_targetLogged) return;
+        _targetLogged = true;
+
+        Debug.Log($"[RLPolicyController] Target contract mode={_activeMode} " +
+                  $"selected_source={SelectedTargetSource} selected_target={SelectedTargetMs:F3}ms " +
+                  $"json_target={RLFeatureExtractor.TTargetMs:F3}ms scene_target={RLFeatureExtractor.SceneTTargetMs:F3}ms " +
+                  $"scene_ready={RLFeatureExtractor.SceneTargetReady}.");
+    }
+
+    private float SelectedTargetMs => _extractor != null ? _extractor.SelectedTargetMs : RLFeatureExtractor.TTargetMs;
+    private string SelectedTargetSource => _extractor != null ? _extractor.SelectedTargetSource : "json_training";
 }

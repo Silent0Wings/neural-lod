@@ -16,7 +16,7 @@ DEFAULT_OUTPUT = SCRIPT_DIR / 'rl_null_collection_constants.json'
 
 
 NULL_COLLECTION_DEFAULTS = {
-    # Confirmed historical null collection target.
+    # Bootstrap target until Unity finishes scene-warmup calibration.
     't_target_ms': 4.5,
     'gpu_target_ms_base': 4.5,
     'gpu_target_ms_min': 4.0,
@@ -44,6 +44,9 @@ NULL_COLLECTION_DEFAULTS = {
     'nominal_action_regularization': 0.08,
     'exploration_action_regularization': 0.05,
     'recovery_action_regularization': 0.1,
+    'target_source': 'scene_warmup_median',
+    'collection_mode': 'null_rl',
+    'scene_target_warmup_frames': 64,
 }
 
 
@@ -106,6 +109,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--bias-min', type=float, default=NULL_COLLECTION_DEFAULTS['bias_min'])
     parser.add_argument('--bias-max', type=float, default=NULL_COLLECTION_DEFAULTS['bias_max'])
     parser.add_argument('--inference-interval', type=int, default=NULL_COLLECTION_DEFAULTS['inference_interval'])
+    parser.add_argument('--scene-target-warmup-frames', type=int, default=NULL_COLLECTION_DEFAULTS['scene_target_warmup_frames'])
     return parser.parse_args()
 
 
@@ -124,6 +128,7 @@ def main() -> int:
             'bias_min': args.bias_min,
             'bias_max': args.bias_max,
             'inference_interval': args.inference_interval,
+            'scene_target_warmup_frames': args.scene_target_warmup_frames,
         },
     )
 
@@ -136,7 +141,8 @@ def main() -> int:
     print('Source scaler:', args.source_scaler)
     print(f't_target_ms={data["t_target_ms"]} action_head_scale={data["action_head_scale"]} '
           f'max_action_delta={data["max_action_delta"]} dead_zone={data["dead_zone"]} '
-          f'dwell_frames={data["dwell_frames"]} inference_interval={data["inference_interval"]}')
+          f'dwell_frames={data["dwell_frames"]} inference_interval={data["inference_interval"]} '
+          f'target_source={data["target_source"]} scene_target_warmup_frames={data["scene_target_warmup_frames"]}')
     return 0
 
 

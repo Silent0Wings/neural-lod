@@ -41,7 +41,14 @@ def _status(failed):
     return "FAIL" if failed else "PASS"
 
 
-def build_run_health_report(df_clean, history, diag_results, t_target, run_log_path=None) -> tuple[str, bool]:
+def build_run_health_report(
+    df_clean,
+    history,
+    diag_results,
+    t_target,
+    run_log_path=None,
+    target_source="json_training",
+) -> tuple[str, bool]:
     """Return markdown report and overall healthy flag."""
     final_mean_mu = _final(history, "mean_mu")
     final_neg_mu_pct = _final(history, "neg_mu_pct")
@@ -105,6 +112,7 @@ def build_run_health_report(df_clean, history, diag_results, t_target, run_log_p
         "## Summary",
         "",
         f"- T_TARGET: `{float(t_target):.3f} ms`",
+        f"- Target source: `{target_source}`",
         f"- Final deploy_MAE: `{float(diag_results.get('deploy_mae_all', avg_deploy_mae)):.4f}`",
         f"- Final deploy_active%: `{float(diag_results.get('deploy_active_pct', 0.0)):.2f}%`",
         f"- Final floor%: `{float(diag_results.get('floor_pct', avg_floor_pct)):.2f}%`",
@@ -144,8 +152,22 @@ def build_run_health_report(df_clean, history, diag_results, t_target, run_log_p
     return "\n".join(lines) + "\n", healthy
 
 
-def write_run_health_report(df_clean, history, diag_results, t_target, run_log_path=None) -> tuple[Path, bool]:
-    report, healthy = build_run_health_report(df_clean, history, diag_results, t_target, run_log_path)
+def write_run_health_report(
+    df_clean,
+    history,
+    diag_results,
+    t_target,
+    run_log_path=None,
+    target_source="json_training",
+) -> tuple[Path, bool]:
+    report, healthy = build_run_health_report(
+        df_clean,
+        history,
+        diag_results,
+        t_target,
+        run_log_path,
+        target_source=target_source,
+    )
     log_dir = Path(__file__).resolve().parent / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 

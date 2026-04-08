@@ -46,7 +46,7 @@ public class RLEvaluationLogger : MonoBehaviour
 
     [Header("Reward (Improvement-Based)")]
     [Tooltip("All reward and control parameters loaded from scaler JSON.")]
-    private float tTargetMs => RLFeatureExtractor.GpuTargetMsBase;
+    private float tTargetMs => _extractor != null ? _extractor.SelectedTargetMs : RLFeatureExtractor.GpuTargetMsBase;
     private float deadZone => RLFeatureExtractor.DeadZone;
     private int dwellFrames => RLFeatureExtractor.DwellFrames;
     [Tooltip("Bonus added to reward when gpu_ms <= tTargetMs.")]

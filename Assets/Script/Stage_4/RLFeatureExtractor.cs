@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using Unity.Profiling;
 using System.IO;
+using System.Collections.Generic;
 
 // RLFeatureExtractor
 // Stage 4 — Collects the 13-feature state vector for the RL agent.
@@ -53,6 +54,9 @@ public class RLFeatureExtractor : MonoBehaviour
     [Tooltip("Filename inside StreamingAssets for the 13-feature RL scaler.")]
     public string scalerJsonFileName = "rl_scaler_constants.json";
 
+    [Tooltip("Filename inside StreamingAssets for null-model / fallback collection.")]
+    public string nullScalerJsonFileName = "rl_null_collection_constants.json";
+
     [Header("Coverage Sampling")]
     [Tooltip("Resample visible renderers every N frames. Reduced to 2 to match 2-frame inference interval.")]
     [Range(1, 10)]
@@ -100,6 +104,9 @@ public class RLFeatureExtractor : MonoBehaviour
     public static float BiasMin { get; private set; } = 0.30f;
     public static float BiasMax { get; private set; } = 2.00f;
     public static int InferenceInterval { get; private set; } = 2;
+    public static float SceneTTargetMs { get; private set; } = 4.5f;
+    public static bool SceneTargetReady { get; private set; } = false;
+    public static int SceneTargetWarmupFrames { get; private set; } = 64;
 
     // ── Mode-based loss hyperparameters (from training) ──────────────────
     public static float GpuTargetMsBase { get; private set; } = 4.5f;
@@ -157,6 +164,14 @@ public class RLFeatureExtractor : MonoBehaviour
     private int   _recentSwitchCount  = 0;
     private float _floorDwellScore    = 0f;
     private float _ceilingDwellScore  = 0f;
+    private bool _nullCollectionMode = false;
+    private string _loadedScalerFileName = "";
+    private readonly List<float> _sceneTargetSamples = new List<float>(128);
+
+    public float SelectedTargetMs => _nullCollectionMode && SceneTargetReady ? SceneTTargetMs : TTargetMs;
+    public string SelectedTargetSource => _nullCollectionMode
+        ? (SceneTargetReady ? "null_scene_warmup" : "null_json_bootstrap")
+        : "json_training";
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -184,7 +199,10 @@ public class RLFeatureExtractor : MonoBehaviour
         _coverageFrameCounter = coverageSampleInterval; // prime an immediate first resample
         _switchRingBuffer = new int[lodSwitchWindow];
 
-        LoadScalerConstants();
+        RLPolicyController policyController = GetComponent<RLPolicyController>();
+        _nullCollectionMode = policyController != null && policyController.UsesRuleBasedFallback;
+        string selectedScalerFileName = _nullCollectionMode ? nullScalerJsonFileName : scalerJsonFileName;
+        LoadScalerConstants(selectedScalerFileName);
     }
 
     void OnEnable()
@@ -210,6 +228,7 @@ public class RLFeatureExtractor : MonoBehaviour
 
         CpuFrameTime = timingCount > 0 ? (float)_frameTimings[0].cpuFrameTime : 0f;
         GpuFrameTime = timingCount > 0 ? (float)_frameTimings[0].gpuFrameTime : 0f;
+        UpdateSceneTargetCalibration(GpuFrameTime);
 
         // 2. Triangle guard — profiler needs several frames to warm up.
         long trisRaw = _trisRecorder.Valid ? _trisRecorder.LastValue : 0;
@@ -347,9 +366,28 @@ public class RLFeatureExtractor : MonoBehaviour
         _ceilingDwellScore = Mathf.Clamp01(_ceilingDwellScore * dwellDecay + ceilingProximity * dwellAccumulationRate);
     }
 
-    private void LoadScalerConstants()
+    private void UpdateSceneTargetCalibration(float gpuMs)
     {
-        string path = Application.streamingAssetsPath + "/" + scalerJsonFileName;
+        if (!_nullCollectionMode || SceneTargetReady || gpuMs <= 0f) return;
+
+        _sceneTargetSamples.Add(gpuMs);
+        if (_sceneTargetSamples.Count < SceneTargetWarmupFrames) return;
+
+        _sceneTargetSamples.Sort();
+        int mid = _sceneTargetSamples.Count / 2;
+        SceneTTargetMs = _sceneTargetSamples.Count % 2 == 0
+            ? 0.5f * (_sceneTargetSamples[mid - 1] + _sceneTargetSamples[mid])
+            : _sceneTargetSamples[mid];
+        SceneTargetReady = true;
+
+        Debug.Log($"[RLFeatureExtractor] Scene target calibrated. source=null_scene_warmup " +
+                  $"target={SceneTTargetMs:F3}ms samples={_sceneTargetSamples.Count} " +
+                  $"json_bootstrap={TTargetMs:F3}ms file={_loadedScalerFileName}");
+    }
+
+    private void LoadScalerConstants(string fileName)
+    {
+        string path = Application.streamingAssetsPath + "/" + fileName;
 
         if (!File.Exists(path))
         {
@@ -405,6 +443,9 @@ public class RLFeatureExtractor : MonoBehaviour
         _scalerMean  = data.mean;
         _scalerScale = data.scale;
         TTargetMs = data.t_target_ms;
+        SceneTTargetMs = data.t_target_ms;
+        SceneTargetReady = false;
+        SceneTargetWarmupFrames = Mathf.Max(1, data.scene_target_warmup_frames);
         ActionHeadScale = data.action_head_scale;
         MaxActionDelta = data.max_action_delta;
         DeadZone = data.dead_zone;
@@ -428,10 +469,12 @@ public class RLFeatureExtractor : MonoBehaviour
         NominalActionRegularization = data.nominal_action_regularization;
         ExplorationActionRegularization = data.exploration_action_regularization;
         RecoveryActionRegularization = data.recovery_action_regularization;
+        _loadedScalerFileName = fileName;
 
         IsReady = true;
 
-        Debug.Log($"[RLFeatureExtractor] Scaler loaded OK. T_TARGET={TTargetMs}ms ACTION_SCALE={ActionHeadScale} " +
+        Debug.Log($"[RLFeatureExtractor] Scaler loaded OK. file={fileName} mode={(_nullCollectionMode ? "null_collection" : "active_rl")} " +
+                  $"T_TARGET={TTargetMs}ms selected_source={SelectedTargetSource} ACTION_SCALE={ActionHeadScale} " +
                   $"DEAD_ZONE={DeadZone} DWELL_FRAMES={DwellFrames}. Mode thresholds: headroom_fps={ModeHeadroomFpsFloor} " +
                   $"budget_fps={ModeBudgetFpsFloor} gpu_target={GpuTargetMsBase}ms. Extractor READY.");
     }
@@ -469,5 +512,8 @@ public class RLFeatureExtractor : MonoBehaviour
         public float    nominal_action_regularization = 0.08f;
         public float    exploration_action_regularization = 0.05f;
         public float    recovery_action_regularization = 0.1f;
+        public string   target_source = "json_training";
+        public int      scene_target_warmup_frames = 64;
+        public string   collection_mode = "active_rl";
     }
 }

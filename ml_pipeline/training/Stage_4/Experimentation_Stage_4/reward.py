@@ -66,6 +66,9 @@ def fit_scaler(df_clean: pd.DataFrame, t_target: float, run_plots: bool = True):
         'nominal_action_regularization': 0.08,
         'exploration_action_regularization': 0.05,
         'recovery_action_regularization': 0.1,
+        'target_source': 'json_training',
+        'collection_mode': 'active_rl',
+        'scene_target_warmup_frames': 64,
     }
 
     scaler_path = MODEL_DIR / 'rl_scaler_constants.json'
