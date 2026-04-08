@@ -49,7 +49,7 @@
   "max_action_delta": 0.2,
   "pg_coef": 1.1,
   "bc_coef_start": 0.3,
-  "bc_coef_end": 0.1,
+  "bc_coef_end": 0.15,
   "gpu_target_ms_base": 6.466599941253662,
   "gpu_target_ms_min": 4.0,
   "gpu_target_ms_max": 6.5,

@@ -12,6 +12,7 @@ from config import (
     MODEL_DIR, PLOTS_DIR, FEATURE_COLS, FEATURE_COUNT,
     BIAS_MIN, BIAS_MAX, UNDER_BUDGET_MARGIN, BONUS_SCALE,
     OVER_BUDGET_COEF, UNDER_BUDGET_COEF, RECOVERY_REWARD_COEF,
+    CONTROL_DIRECTION_REWARD_COEF,
     REWARD_CLIP, TARGET_PROX_SIGMA, CONTROL_DEADBAND_MS,
     ACTION_HEAD_SCALE, MAX_ACTION_DELTA, DEAD_ZONE, PG_COEF, BC_COEF_START, BC_COEF_END,
     RUNTIME_CONTRACT_DEFAULTS,
@@ -164,8 +165,11 @@ def compute_rewards(df_clean: pd.DataFrame, t_target: float) -> pd.DataFrame:
         - UNDER_BUDGET_COEF * under_budget
     )
     r_recovery = RECOVERY_REWARD_COEF * under_budget_headroom * np.clip(bias_after - bias_before, 0.0, None).astype('float32')
+    
+    action_delta = df_clean['action_delta'].values.astype('float32')
+    r_dir = CONTROL_DIRECTION_REWARD_COEF * (np.sign(target - gpu) * np.sign(action_delta))
 
-    rewards = np.clip(r_budget + r_recovery, -REWARD_CLIP, REWARD_CLIP).astype('float32')
+    rewards = np.clip(r_budget + r_recovery + r_dir, -REWARD_CLIP, REWARD_CLIP).astype('float32')
 
     if len(rewards) == 0:
         raise ValueError('rewards is empty -- df_clean is empty')

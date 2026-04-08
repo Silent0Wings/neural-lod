@@ -132,7 +132,8 @@ def reinforce_loss(model, X, A, G, scaler, t_target, bc_coef=0.05, support_coef=
     ceiling_dwell_raw = X[:, CEILING_DWELL_FEATURE_IDX] * float(scaler.scale_[CEILING_DWELL_FEATURE_IDX]) + float(scaler.mean_[CEILING_DWELL_FEATURE_IDX])
     with torch.no_grad():
         control_target, *_ = build_control_target_torch(gpu_raw, prev_bias_raw, floor_dwell_raw, ceiling_dwell_raw, t_target)
-    bc_loss = torch.mean((mu - control_target) ** 2)
+    bc_gate = (torch.sign(control_target) == torch.sign(mu)).float()
+    bc_loss = torch.mean(((mu - control_target) ** 2) * bc_gate)
     outside_support_penalty = torch.mean(torch.relu(torch.abs(mu) - SOFT_SUPPORT_LIMIT) ** 2)
 
     return (PG_COEF * loss) + (bc_coef * bc_loss) + (support_coef * outside_support_penalty)

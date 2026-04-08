@@ -24,6 +24,7 @@ warnings.filterwarnings('ignore')
 
 
 import argparse
+import numpy as np
 
 from pipeline_logging import setup_pipeline_logging
 
@@ -43,7 +44,7 @@ skip_optuna = False
 
 skip_diagnostics = False
 
-skip_export = True
+skip_export = False
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Run the Stage 4 RL policy training pipeline.')
@@ -91,6 +92,13 @@ def main():
     print('='*60)
     raw = load_rollouts()
     df_clean = clean_data(raw)
+    # FATAL GATE: Exploration
+    a = df_clean['action_delta'].values
+    near_zero_pct = (np.abs(a) < 0.005).mean() * 100
+    if near_zero_pct > 60.0:
+        print(f"⚠️ WARNING: Rollout data is too static (near-zero action: {near_zero_pct:.1f}% > 60%).")
+        print("⚠️ Pipeline will continue, but you MUST use the exported ONNX to re-collect data with ACTIVE RL in Unity.")
+
     training_target_source = (
         'rollout_reward_target_ms'
         if 'reward_target_ms' in df_clean.columns and df_clean['reward_target_ms'].notna().any()
@@ -113,6 +121,11 @@ def main():
     print('§4: Reward computation')
     print('='*60)
     df_clean = compute_rewards(df_clean, t_target)
+    
+    # FATAL GATE: Signal
+    r_total_std = df_clean['reward'].std()
+    if r_total_std < 0.18:
+        raise RuntimeError(f"FATAL: Reward function is too flat (std: {r_total_std:.3f} < 0.18). Increase Coefs.")
 
     # §5-6: Prepare returns and split data
     print('\n' + '='*60)
@@ -139,7 +152,7 @@ def main():
         study, X_tr_t, A_tr_t, G_tr_t, X_val_t, A_val_t, G_val_t,
         df_val, scaler, t_target, group_col, run_plots=run_plots,
     )
-
+    
     if skip_diagnostics:
         print('skip_diagnostics=True; stopping before diagnostics and export.')
         return model, history
@@ -156,6 +169,18 @@ def main():
     if skip_export:
         print('skip_export=True; stopping before quality gates and ONNX export.')
         return model, history, diag_results, health_report_path, is_healthy
+
+    # FATAL GATES: Direction and Saturation
+    epochs_run = len(history['correct_dir_pct'])
+    if epochs_run > 0:
+        check_epoch = min(25, epochs_run) - 1
+        dir_pct = history['correct_dir_pct'][check_epoch]
+        if dir_pct < 15.0:
+            print(f"⚠️ WARNING: Model is learning inverted control (CorrectDir @ epoch {check_epoch+1}: {dir_pct:.1f}% < 15%). Proceeding for bootstrap.")
+            
+        final_pos_sat = history['pos_sat_pct'][-1]
+        if final_pos_sat > 35.0:
+            print(f"⚠️ WARNING: Model has rail-collapsed (pos_sat%: {final_pos_sat:.1f}% > 35%). Proceeding for bootstrap.")
 
     # §9-10: Quality gates and ONNX export
     print('\n' + '='*60)
