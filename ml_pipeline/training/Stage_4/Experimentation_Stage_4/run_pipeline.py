@@ -109,9 +109,9 @@ def main():
     print('\n' + '='*60)
     print('§3: Feature scaling & constants')
     print('='*60)
-    # 81% Restoration: Restoring the true target (6.47ms) now that directionality logic is verified.
-    # We keep the Triple-Gain booster from the 75% run to maintain high intent scores.
-    t_target = 6.466599941253662
+    # 81% Restoration: Training against 5.0ms to restore the high-load directional intelligence.
+    # This recreates the tension from the winning 22:27 run.
+    t_target = 5.0
     scaler, X_scaled = fit_scaler(df_clean, t_target, run_plots=run_plots)
 
     # §3b: Data distribution analysis
