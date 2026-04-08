@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 
 from config import (
-    ACTION_HEAD_SCALE, FEATURE_COLS, FEATURE_COUNT,
+    MAX_ACTION_DELTA, FEATURE_COLS, FEATURE_COUNT,
     DEAD_ZONE, DWELL_FRAMES, BIAS_MIN, BIAS_MAX, FLOOR_MARGIN, CEILING_MARGIN,
     DWELL_ACTIVE_THRESHOLD, FLOOR_DWELL_RECOVERY_GAIN, CEILING_DWELL_CORRECTION_GAIN,
     RECOVERY_ELIGIBLE_BIAS, CORRECTION_ELIGIBLE_BIAS,
@@ -45,7 +45,7 @@ class PolicyMLP(nn.Module):
     def forward(self, x):
         mu = self.net(x)
         log_sigma = self.log_sigma
-        mu = 0.3 * ACTION_HEAD_SCALE * torch.tanh(mu)
+        mu = MAX_ACTION_DELTA * torch.tanh(mu)
         sigma = torch.exp(self.log_sigma).clamp(0.1, 1.0)
         if self.training:
             mu = mu + torch.randn_like(mu) * sigma * 0.05
@@ -59,7 +59,7 @@ def linear_schedule(start, end, progress):
 
 def apply_runtime_guardrails_np(raw_mu, gpu_ms, start_bias, t_target):
     """Simulate Unity runtime guardrails (dead zone, dwell, recovery)."""
-    raw_mu = np.clip(np.asarray(raw_mu, dtype=np.float32), -ACTION_HEAD_SCALE, ACTION_HEAD_SCALE)
+    raw_mu = np.clip(np.asarray(raw_mu, dtype=np.float32), -MAX_ACTION_DELTA, MAX_ACTION_DELTA)
     gpu_ms = np.asarray(gpu_ms, dtype=np.float32)
     applied = np.zeros_like(raw_mu, dtype=np.float32)
     bias_trace = np.zeros_like(raw_mu, dtype=np.float32)
@@ -105,7 +105,7 @@ def apply_runtime_guardrails_np(raw_mu, gpu_ms, start_bias, t_target):
             delta = max(float(delta), 0.0) + float(RECOVERY_BOOST_BASE) * recovery_scalar
         if correction_scalar > 1.0:
             delta = min(float(delta), 0.0) - float(RECOVERY_BOOST_BASE) * correction_scalar
-        delta = float(np.clip(delta, -ACTION_HEAD_SCALE, ACTION_HEAD_SCALE))
+        delta = float(np.clip(delta, -MAX_ACTION_DELTA, MAX_ACTION_DELTA))
 
         if abs(delta) < DEAD_ZONE:
             bias_trace[i] = bias
@@ -245,16 +245,17 @@ def build_control_target_torch(gpu_raw, prev_bias_raw, floor_dwell_raw, ceiling_
         CEILING_CORRECTION_MIN_STRENGTH, 1.0,
     )
 
-    positive_floor_target = ACTION_HEAD_SCALE * recovery_strength * up_room
-    positive_under_target = ACTION_HEAD_SCALE * under_strength * up_room
-    negative_over_target = -ACTION_HEAD_SCALE * over_strength * down_room
-    negative_ceiling_target = -ACTION_HEAD_SCALE * ceiling_strength * down_room
+    positive_floor_target = MAX_ACTION_DELTA * recovery_strength * up_room
+    positive_under_target = MAX_ACTION_DELTA * under_strength * up_room
+    negative_over_target = -MAX_ACTION_DELTA * over_strength * down_room
+    negative_ceiling_target = -MAX_ACTION_DELTA * ceiling_strength * down_room
 
     control_target = torch.zeros_like(gpu_raw)
 
     # REGIME 1: LOW BIAS - Recover upward when under budget
     low_bias_under_budget = low_bias_mask & under_budget_mask
-    control_target = torch.where(low_bias_under_budget, positive_under_target.clamp(0.1, ACTION_HEAD_SCALE), control_target)
+    min_directional_action = min(0.1, float(MAX_ACTION_DELTA))
+    control_target = torch.where(low_bias_under_budget, positive_under_target.clamp(min_directional_action, MAX_ACTION_DELTA), control_target)
 
     # REGIME 2: MID BIAS - Hold when near target
     mid_bias_near_target = mid_bias_mask & near_target_mask
@@ -262,7 +263,7 @@ def build_control_target_torch(gpu_raw, prev_bias_raw, floor_dwell_raw, ceiling_
 
     # REGIME 3: HIGH BIAS - Trim downward when over budget
     high_bias_over_budget = high_bias_mask & over_budget_mask
-    control_target = torch.where(high_bias_over_budget, negative_over_target.clamp(-ACTION_HEAD_SCALE, -0.1), control_target)
+    control_target = torch.where(high_bias_over_budget, negative_over_target.clamp(-MAX_ACTION_DELTA, -min_directional_action), control_target)
 
     # Fallbacks
     control_target = torch.where(over_budget_mask & ~high_bias_over_budget, negative_over_target, control_target)

@@ -13,7 +13,7 @@ import optuna
 from sklearn.model_selection import GroupShuffleSplit
 
 from config import (
-    FEATURE_COLS, FEATURE_COUNT, GAMMA_RL, ACTION_HEAD_SCALE, DEAD_ZONE,
+    FEATURE_COLS, FEATURE_COUNT, GAMMA_RL, MAX_ACTION_DELTA, DEAD_ZONE,
     PG_COEF, BC_COEF_START, BC_COEF_END, SUPPORT_COEF_START, SUPPORT_COEF_END,
     SUPPORT_MARGIN, SAT_WARN_THRESHOLD, DEPLOY_ACTIVE_TARGET,
     VAL_GROUP_FRAC, GRAD_CLIP, BATCH_SIZE, RANDOM_SEED,
@@ -94,7 +94,7 @@ def split_data(df_clean, X_scaled):
     BOOTSTRAP_ACTION_LIMIT = float(np.max(np.abs(ACTION_SUPPORT))) if ACTION_SUPPORT.size else 0.0
     print(f'Observed rollout action support: {ACTION_SUPPORT.tolist()}')
     print(f'Observed support abs max      : +/-{BOOTSTRAP_ACTION_LIMIT:.3f}')
-    print(f'Deployable action envelope    : +/-{ACTION_HEAD_SCALE:.3f}')
+    print(f'Deployable action envelope    : +/-{MAX_ACTION_DELTA:.3f}')
     print(f'Soft support warning limit    : +/-{SOFT_SUPPORT_LIMIT:.3f}')
 
     return (

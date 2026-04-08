@@ -96,6 +96,9 @@ def load_rollouts() -> pd.DataFrame:
         'lod_bias_before_action', 'action_delta', 'lod_bias_after_action',
         'raw_action_delta', 'selected_target_ms', 'scene_target_ready', 'gpu_ms_at_target_lock',
     ]
+    for optional_feature_col in ('floor_dwell_score', 'ceiling_dwell_score'):
+        if optional_feature_col in raw.columns:
+            numeric_cols.append(optional_feature_col)
     for col in numeric_cols:
         raw[col] = pd.to_numeric(raw[col], errors='coerce')
 
@@ -190,8 +193,21 @@ def clean_data(raw: pd.DataFrame) -> pd.DataFrame:
     sequence_group_col = 'source_file' if 'source_file' in df_clean.columns else 'episode'
     df_clean = df_clean.sort_values([sequence_group_col, 'step']).reset_index(drop=True)
 
-    # Add dwell features
-    df_clean = add_bias_dwell_features(df_clean, sequence_group_col)
+    # Current Unity rollouts log dwell scores as part of the 13-feature policy
+    # vector. Use them directly so training sees the same state the controller
+    # saw; recompute only for older rollout files that did not have the fields.
+    missing_dwell_cols = [
+        col for col in ('floor_dwell_score', 'ceiling_dwell_score')
+        if col not in df_clean.columns or df_clean[col].isna().all()
+    ]
+    if missing_dwell_cols:
+        print(f'Recomputing missing dwell feature(s): {missing_dwell_cols}')
+        df_clean = add_bias_dwell_features(df_clean, sequence_group_col)
+    else:
+        recomputed_dwell = add_bias_dwell_features(df_clean, sequence_group_col)
+        for col in ('floor_dwell_score', 'ceiling_dwell_score'):
+            df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce').fillna(recomputed_dwell[col]).astype('float32')
+        print('Using logged Unity dwell features: floor_dwell_score, ceiling_dwell_score')
     df_clean['reward_target_ms'] = pd.to_numeric(df_clean['selected_target_ms'], errors='coerce').astype('float32')
     df_clean.attrs['dropped_pre_target_lock_rows'] = dropped_pre_target_lock_rows
 

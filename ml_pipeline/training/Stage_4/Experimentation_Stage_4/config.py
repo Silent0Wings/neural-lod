@@ -18,7 +18,20 @@ MODEL_DIR       = BASE_DIR / 'models' / 'Stage_4'
 PLOTS_DIR       = BASE_DIR / 'plots' / 'Stage_4' / 'Train'
 
 # ── Unity runtime contract (must match collection and deployment JSON) ─
-RUNTIME_CONTRACT_DEFAULTS = {
+#
+# The Stage 4 Unity runtime now owns more than the scaler mean/scale:
+# action envelope, dwell/dead-zone guardrails, feature-extractor dwell
+# settings, scene target warmup, and recovery-assist constants all affect the
+# labels written by null/fallback collection.  Keep those values in one Python
+# contract so training, diagnostics, generated JSON, and ONNX export agree.
+_CONTRACT_JSON_CANDIDATES = (
+    Path(__file__).resolve().parent / 'rl_null_collection_constants.json',
+    Path(__file__).resolve().parent.parent.parent.parent / 'Assets' / 'StreamingAssets' / 'rl_null_collection_constants.json',
+)
+
+_RUNTIME_CONTRACT_BASE = {
+    'action_head_scale': 0.20,
+    'max_action_delta': 0.20,
     'dead_zone': 0.02,
     'dwell_frames': 5,
     'bias_min': 0.30,
@@ -40,6 +53,28 @@ RUNTIME_CONTRACT_DEFAULTS = {
     'recovery_budget_reset_margin': 0.10,
     'scene_target_warmup_frames': 64,
 }
+_RUNTIME_CONTRACT_KEYS = tuple(_RUNTIME_CONTRACT_BASE.keys())
+
+
+def _load_runtime_contract_overrides() -> dict:
+    """Load Unity-owned runtime constants from the local null-collection JSON."""
+    import json
+
+    for path in _CONTRACT_JSON_CANDIDATES:
+        if not path.exists():
+            continue
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return {
+            key: data[key]
+            for key in _RUNTIME_CONTRACT_KEYS
+            if key in data and data[key] is not None
+        }
+    return {}
+
+
+RUNTIME_CONTRACT_DEFAULTS = dict(_RUNTIME_CONTRACT_BASE)
+RUNTIME_CONTRACT_DEFAULTS.update(_load_runtime_contract_overrides())
 RUNTIME_CONTRACT_KEYS = tuple(RUNTIME_CONTRACT_DEFAULTS.keys())
 
 # ── Reward shaping ─────────────────────────────────────────────────────
@@ -99,7 +134,8 @@ N_MAX            = 30.0
 # ── REINFORCE / rollout-policy training hyperparameters ────────────────
 GAMMA_RL           = 0.99
 TRAIN_SIGMA        = 0.10
-ACTION_HEAD_SCALE  = 0.30
+ACTION_HEAD_SCALE  = float(RUNTIME_CONTRACT_DEFAULTS['action_head_scale'])
+MAX_ACTION_DELTA   = float(RUNTIME_CONTRACT_DEFAULTS['max_action_delta'])
 PG_COEF            = 1.10
 BC_COEF_START      = 0.30
 BC_COEF_END        = 0.10
@@ -108,7 +144,7 @@ NONZERO_BC_WEIGHT  = 1.0
 SUPPORT_MARGIN     = 0.015
 SUPPORT_COEF_START = 0.10
 SUPPORT_COEF_END   = 0.00
-SAT_WARN_THRESHOLD = ACTION_HEAD_SCALE - 0.01
+SAT_WARN_THRESHOLD = MAX_ACTION_DELTA - 0.01
 SAT_COEF              = 1.0
 NEG_SAT_COEF          = 6.0
 FLOOR_COEF            = 1.5
@@ -164,7 +200,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') if torch i
 # ── Derived constants (set after data load) ────────────────────────────
 T_TARGET = None  # Set dynamically by data_loader / reward
 
-SOFT_SUPPORT_LIMIT = max(DEAD_ZONE, ACTION_HEAD_SCALE - SUPPORT_MARGIN)
+SOFT_SUPPORT_LIMIT = max(DEAD_ZONE, MAX_ACTION_DELTA - SUPPORT_MARGIN)
 
 # Feature indices (convenience)
 GPU_FEATURE_IDX = FEATURE_COLS.index('gpu_frame_time')

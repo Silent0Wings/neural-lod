@@ -30,7 +30,7 @@ from pipeline_logging import setup_pipeline_logging
 RUN_LOG_PATH = setup_pipeline_logging()
 
 import config
-from config import MODEL_DIR, PLOTS_DIR, device, FEATURE_COLS, ACTION_HEAD_SCALE, TRAIN_SIGMA
+from config import MODEL_DIR, PLOTS_DIR, device, FEATURE_COLS, ACTION_HEAD_SCALE, MAX_ACTION_DELTA, TRAIN_SIGMA, RUNTIME_CONTRACT_DEFAULTS
 from data_loader import load_rollouts, clean_data, compute_t_target
 from reward import fit_scaler, print_data_distribution, compute_rewards
 from train import prepare_returns, split_data, run_optuna, train_final
@@ -72,7 +72,18 @@ def main():
     print(f'Run plots:           {run_plots}')
     print(f'Device:              {device}')
     print(f'ACTION_HEAD_SCALE:   {ACTION_HEAD_SCALE:.3f}')
+    print(f'MAX_ACTION_DELTA:    {MAX_ACTION_DELTA:.3f}')
     print(f'TRAIN_SIGMA:         {TRAIN_SIGMA:.3f}')
+    print(
+        'Runtime contract:    '
+        f'dead_zone={RUNTIME_CONTRACT_DEFAULTS["dead_zone"]} '
+        f'dwell_frames={RUNTIME_CONTRACT_DEFAULTS["dwell_frames"]} '
+        f'inference_interval={RUNTIME_CONTRACT_DEFAULTS["inference_interval"]} '
+        f'recovery=({RUNTIME_CONTRACT_DEFAULTS["recovery_eligible_bias"]}, '
+        f'{RUNTIME_CONTRACT_DEFAULTS["correction_eligible_bias"]}, '
+        f'{RUNTIME_CONTRACT_DEFAULTS["recovery_growth_threshold"]}, '
+        f'{RUNTIME_CONTRACT_DEFAULTS["recovery_trigger_frames"]})'
+    )
 
     # §1-2: Load and clean rollout data
     print('\n' + '='*60)

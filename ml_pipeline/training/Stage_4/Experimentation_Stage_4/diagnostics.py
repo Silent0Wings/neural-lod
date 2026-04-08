@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import torch
 
 from config import (
-    FEATURE_COLS, ACTION_HEAD_SCALE, SOFT_SUPPORT_LIMIT,
+    FEATURE_COLS, MAX_ACTION_DELTA, SOFT_SUPPORT_LIMIT,
     SAT_WARN_THRESHOLD, TRAIN_SIGMA, BIAS_MIN, FLOOR_MARGIN, PLOTS_DIR, device,
 )
 from model import build_deployment_frame
@@ -45,7 +45,7 @@ def run_diagnostics(model, df_clean, X_scaled, scaler, t_target, group_col='sour
     floor_pct = float((deployment_frame['deployed_bias'].values.astype('float32') <= (BIAS_MIN + FLOOR_MARGIN)).mean() * 100)
 
     logging.info(f'Fixed training sigma: {TRAIN_SIGMA:.6f}')
-    logging.info(f'Deployable action envelope: +/-{ACTION_HEAD_SCALE:.3f}')
+    logging.info(f'Deployable action envelope: +/-{MAX_ACTION_DELTA:.3f}')
     logging.info(
         f'Predicted mu stats | mean={raw_mu_all.mean():.6f} | std={raw_mu_all.std():.6f} | '
         f'min={raw_mu_all.min():.6f} | max={raw_mu_all.max():.6f}'
@@ -77,7 +77,7 @@ def run_diagnostics(model, df_clean, X_scaled, scaler, t_target, group_col='sour
 
         ax = axes[1, 0]
         ax.scatter(actual_actions[:2000], applied_mu_all[:2000], alpha=0.2, s=6, color='#9C27B0')
-        ax.plot([-ACTION_HEAD_SCALE, ACTION_HEAD_SCALE], [-ACTION_HEAD_SCALE, ACTION_HEAD_SCALE], 'r--', alpha=0.5)
+        ax.plot([-MAX_ACTION_DELTA, MAX_ACTION_DELTA], [-MAX_ACTION_DELTA, MAX_ACTION_DELTA], 'r--', alpha=0.5)
         ax.set_title('Deploy Simulation vs. Logged Actions')
 
         ax = axes[1, 1]

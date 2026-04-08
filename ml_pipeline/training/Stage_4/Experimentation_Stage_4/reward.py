@@ -13,7 +13,7 @@ from config import (
     BIAS_MIN, BIAS_MAX, UNDER_BUDGET_MARGIN, BONUS_SCALE,
     OVER_BUDGET_COEF, UNDER_BUDGET_COEF, RECOVERY_REWARD_COEF,
     REWARD_CLIP, TARGET_PROX_SIGMA, CONTROL_DEADBAND_MS,
-    ACTION_HEAD_SCALE, DEAD_ZONE, PG_COEF, BC_COEF_START, BC_COEF_END,
+    ACTION_HEAD_SCALE, MAX_ACTION_DELTA, DEAD_ZONE, PG_COEF, BC_COEF_START, BC_COEF_END,
     RUNTIME_CONTRACT_DEFAULTS,
 )
 
@@ -54,7 +54,7 @@ def fit_scaler(df_clean: pd.DataFrame, t_target: float, run_plots: bool = True):
         'scale': scaler.scale_.tolist(),
         't_target_ms': float(t_target),
         'action_head_scale': ACTION_HEAD_SCALE,
-        'max_action_delta': ACTION_HEAD_SCALE,
+        'max_action_delta': MAX_ACTION_DELTA,
         'pg_coef': float(PG_COEF),
         'bc_coef_start': BC_COEF_START,
         'bc_coef_end': BC_COEF_END,
