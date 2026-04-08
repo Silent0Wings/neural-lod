@@ -248,11 +248,11 @@ def build_control_target_torch(gpu_raw, prev_bias_raw, floor_dwell_raw, ceiling_
         CEILING_CORRECTION_MIN_STRENGTH, 1.0,
     )
 
-    # 81% Restoration: More aggressive upward pressure when under budget
-    positive_floor_target = MAX_ACTION_DELTA * recovery_strength * up_room * 1.5
-    positive_under_target = MAX_ACTION_DELTA * under_strength * up_room * 1.5
-    negative_over_target = -MAX_ACTION_DELTA * over_strength * down_room
-    negative_ceiling_target = -MAX_ACTION_DELTA * ceiling_strength * down_room
+    # 81% Restoration: Aggressive Triple-Gain recovery to restore 80%+ accuracy
+    positive_floor_target = MAX_ACTION_DELTA * recovery_strength * up_room * 3.0
+    positive_under_target = MAX_ACTION_DELTA * under_strength * up_room * 3.0
+    negative_over_target = -MAX_ACTION_DELTA * over_strength * down_room * 2.0
+    negative_ceiling_target = -MAX_ACTION_DELTA * ceiling_strength * down_room * 2.0
 
     control_target = torch.zeros_like(gpu_raw)
 
