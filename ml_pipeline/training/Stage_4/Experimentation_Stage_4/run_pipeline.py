@@ -109,10 +109,9 @@ def main():
     print('\n' + '='*60)
     print('§3: Feature scaling & constants')
     print('='*60)
-    # 81% Restoration: We train against a 5.5ms target to create a strong direction signal
-    # This prevents the model from hitting random 50/50 directionality in idle scenes.
-    t_target = 5.5
-    config.T_TARGET = t_target
+    # 81% Restoration: Restoring the true target (6.47ms) now that directionality logic is verified.
+    # We keep the Triple-Gain booster from the 75% run to maintain high intent scores.
+    t_target = 6.466599941253662
     scaler, X_scaled = fit_scaler(df_clean, t_target, run_plots=run_plots)
 
     # §3b: Data distribution analysis
