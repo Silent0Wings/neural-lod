@@ -3,20 +3,31 @@ Stage 4: RL LOD Policy Training Pipeline - Main Entry Point
 Orchestrates the full notebook pipeline: load → clean → reward → train → diagnose → export.
 
 Usage:
-    python run_pipeline.py
+    uv run run_pipeline.py
 """
+# /// script
+# dependencies = [
+#   "torch",
+#   "matplotlib",
+#   "pandas",
+#   "numpy",
+#   "scikit-learn",
+#   "optuna",
+#   "sympy==1.12",
+#   "onnx",
+#   "onnxruntime",
+# ]
+# ///
 # Pipeline stage: main orchestrator that runs all Stage 4 experiment stages in order.
 import warnings
 warnings.filterwarnings('ignore')
+
 
 import argparse
 
 from pipeline_logging import setup_pipeline_logging
 
 RUN_LOG_PATH = setup_pipeline_logging()
-
-import subprocess, sys
-subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'sympy==1.12', 'optuna', '--quiet'])
 
 import config
 from config import MODEL_DIR, PLOTS_DIR, device, FEATURE_COLS, ACTION_HEAD_SCALE, TRAIN_SIGMA
