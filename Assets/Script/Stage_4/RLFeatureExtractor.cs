@@ -45,6 +45,36 @@ public class RLFeatureExtractor : MonoBehaviour
         "ceiling_dwell_score"
     };
 
+    private static readonly string[] RequiredRuntimeContractKeys =
+    {
+        "t_target_ms",
+        "gpu_target_ms_base",
+        "gpu_target_ms_min",
+        "gpu_target_ms_max",
+        "action_head_scale",
+        "max_action_delta",
+        "dead_zone",
+        "dwell_frames",
+        "bias_min",
+        "bias_max",
+        "inference_interval",
+        "recovery_eligible_bias",
+        "correction_eligible_bias",
+        "recovery_growth_threshold",
+        "recovery_trigger_frames",
+        "recovery_force_multiplier",
+        "recovery_force_max",
+        "recovery_boost_base",
+        "recovery_budget_reset_margin",
+        "coverage_sample_interval",
+        "lod_switch_window",
+        "floor_margin",
+        "ceiling_margin",
+        "dwell_accumulation_rate",
+        "dwell_decay",
+        "scene_target_warmup_frames"
+    };
+
     // ── Inspector ──────────────────────────────────────────────────────────
 
     [Header("References")]
@@ -57,31 +87,18 @@ public class RLFeatureExtractor : MonoBehaviour
     [Tooltip("Filename inside StreamingAssets for null-model / fallback collection.")]
     public string nullScalerJsonFileName = "rl_null_collection_constants.json";
 
-    [Header("Coverage Sampling")]
-    [Tooltip("Resample visible renderers every N frames. Reduced to 2 to match 2-frame inference interval.")]
-    [Range(1, 10)]
-    public int coverageSampleInterval = 2;
-
-    [Header("LOD Switch Window")]
-    [Tooltip("Ring-buffer length (frames) for counting recent LOD switches.")]
-    public int lodSwitchWindow = 30;
-
-    [Header("Bias Dwell Memory")]
-    [Tooltip("Bias values within this margin of BIAS_MIN contribute to floor dwell.")]
-    [Min(0.01f)]
-    public float floorMargin = 0.18f;
-
-    [Tooltip("Bias values within this margin of BIAS_MAX contribute to ceiling dwell.")]
-    [Min(0.01f)]
-    public float ceilingMargin = 0.18f;
-
-    [Tooltip("How quickly dwell accumulators rise while bias stays near a limit.")]
-    [Range(0.01f, 1.0f)]
-    public float dwellAccumulationRate = 0.30f;
-
-    [Tooltip("How much of the previous dwell score remains each frame.")]
-    [Range(0.01f, 0.999f)]
-    public float dwellDecay = 0.92f;
+    // JSON-owned: resample visible renderers every N frames.
+    private int coverageSampleInterval = 2;
+    // JSON-owned: ring-buffer length in frames for recent LOD switch counts.
+    private int lodSwitchWindow = 30;
+    // JSON-owned: bias values within this margin of BiasMin contribute to floor dwell.
+    private float floorMargin = 0.18f;
+    // JSON-owned: bias values within this margin of BiasMax contribute to ceiling dwell.
+    private float ceilingMargin = 0.18f;
+    // JSON-owned: how quickly dwell accumulators rise while bias stays near a limit.
+    private float dwellAccumulationRate = 0.30f;
+    // JSON-owned: how much of the previous dwell score remains each frame.
+    private float dwellDecay = 0.92f;
 
     // ── Public Output ──────────────────────────────────────────────────────
 
@@ -104,6 +121,20 @@ public class RLFeatureExtractor : MonoBehaviour
     public static float BiasMin { get; private set; } = 0.30f;
     public static float BiasMax { get; private set; } = 2.00f;
     public static int InferenceInterval { get; private set; } = 2;
+    public static int CoverageSampleInterval { get; private set; } = 2;
+    public static int LodSwitchWindow { get; private set; } = 30;
+    public static float FloorMargin { get; private set; } = 0.18f;
+    public static float CeilingMargin { get; private set; } = 0.18f;
+    public static float DwellAccumulationRate { get; private set; } = 0.30f;
+    public static float DwellDecay { get; private set; } = 0.92f;
+    public static float RecoveryEligibleBias { get; private set; } = 0.85f;
+    public static float CorrectionEligibleBias { get; private set; } = 1.45f;
+    public static float RecoveryGrowthThreshold { get; private set; } = 0.02f;
+    public static int RecoveryTriggerFrames { get; private set; } = 5;
+    public static float RecoveryForceMultiplier { get; private set; } = 1.35f;
+    public static float RecoveryForceMax { get; private set; } = 4.0f;
+    public static float RecoveryBoostBase { get; private set; } = 0.02f;
+    public static float RecoveryBudgetResetMargin { get; private set; } = 0.10f;
     public static float SceneTTargetMs { get; private set; } = 4.5f;
     public static bool SceneTargetReady { get; private set; } = false;
     public static int SceneTargetWarmupFrames { get; private set; } = 64;
@@ -190,20 +221,23 @@ public class RLFeatureExtractor : MonoBehaviour
             }
         }
 
-        coverageSampleInterval = Mathf.Clamp(coverageSampleInterval, 1, 10);
-        lodSwitchWindow        = Mathf.Max(1, lodSwitchWindow);
-        floorMargin            = Mathf.Max(0.01f, floorMargin);
-        ceilingMargin          = Mathf.Max(0.01f, ceilingMargin);
         _allRenderers     = FindObjectsByType<Renderer>(FindObjectsSortMode.None);
         _previousBias     = QualitySettings.lodBias;
         _currentBias      = QualitySettings.lodBias;
-        _coverageFrameCounter = coverageSampleInterval; // prime an immediate first resample
-        _switchRingBuffer = new int[lodSwitchWindow];
 
         RLPolicyController policyController = GetComponent<RLPolicyController>();
         _nullCollectionMode = policyController != null && policyController.UsesRuleBasedFallback;
         string selectedScalerFileName = _nullCollectionMode ? nullScalerJsonFileName : scalerJsonFileName;
         LoadScalerConstants(selectedScalerFileName);
+
+        if (!IsReady) return;
+
+        coverageSampleInterval = Mathf.Clamp(coverageSampleInterval, 1, 10);
+        lodSwitchWindow        = Mathf.Max(1, lodSwitchWindow);
+        floorMargin            = Mathf.Max(0.01f, floorMargin);
+        ceilingMargin          = Mathf.Max(0.01f, ceilingMargin);
+        _coverageFrameCounter = coverageSampleInterval; // prime an immediate first resample
+        _switchRingBuffer = new int[lodSwitchWindow];
     }
 
     void OnEnable()
@@ -292,7 +326,8 @@ public class RLFeatureExtractor : MonoBehaviour
         _ringHead          = 0;
         _floorDwellScore   = 0f;
         _ceilingDwellScore = 0f;
-        System.Array.Clear(_switchRingBuffer, 0, _switchRingBuffer.Length);
+        if (_switchRingBuffer != null)
+            System.Array.Clear(_switchRingBuffer, 0, _switchRingBuffer.Length);
         _skipMotionFrame      = true;
         _coverageFrameCounter = coverageSampleInterval; // force immediate resample next frame
     }
@@ -398,6 +433,11 @@ public class RLFeatureExtractor : MonoBehaviour
         }
 
         string     json = File.ReadAllText(path);
+        if (!ValidateRuntimeContractKeys(json, fileName))
+        {
+            return;
+        }
+
         ScalerData data = JsonUtility.FromJson<ScalerData>(json);
 
         if (data.mean == null || data.mean.Length != FEATURE_COUNT)
@@ -454,6 +494,26 @@ public class RLFeatureExtractor : MonoBehaviour
         BiasMin = data.bias_min;
         BiasMax = data.bias_max;
         InferenceInterval = data.inference_interval;
+        CoverageSampleInterval = Mathf.Clamp(data.coverage_sample_interval, 1, 10);
+        LodSwitchWindow = Mathf.Max(1, data.lod_switch_window);
+        FloorMargin = Mathf.Max(0.01f, data.floor_margin);
+        CeilingMargin = Mathf.Max(0.01f, data.ceiling_margin);
+        DwellAccumulationRate = Mathf.Clamp(data.dwell_accumulation_rate, 0.01f, 1.0f);
+        DwellDecay = Mathf.Clamp(data.dwell_decay, 0.01f, 0.999f);
+        RecoveryEligibleBias = data.recovery_eligible_bias;
+        CorrectionEligibleBias = data.correction_eligible_bias;
+        RecoveryGrowthThreshold = Mathf.Max(0.0001f, data.recovery_growth_threshold);
+        RecoveryTriggerFrames = Mathf.Max(1, data.recovery_trigger_frames);
+        RecoveryForceMultiplier = Mathf.Max(1.0f, data.recovery_force_multiplier);
+        RecoveryForceMax = Mathf.Max(1.0f, data.recovery_force_max);
+        RecoveryBoostBase = Mathf.Max(0.0001f, data.recovery_boost_base);
+        RecoveryBudgetResetMargin = Mathf.Max(0.0f, data.recovery_budget_reset_margin);
+        coverageSampleInterval = CoverageSampleInterval;
+        lodSwitchWindow = LodSwitchWindow;
+        floorMargin = FloorMargin;
+        ceilingMargin = CeilingMargin;
+        dwellAccumulationRate = DwellAccumulationRate;
+        dwellDecay = DwellDecay;
 
         // Load mode-based loss hyperparameters
         GpuTargetMsBase = data.gpu_target_ms_base;
@@ -476,8 +536,26 @@ public class RLFeatureExtractor : MonoBehaviour
 
         Debug.Log($"[RLFeatureExtractor] Scaler loaded OK. file={fileName} mode={(_nullCollectionMode ? "null_collection" : "active_rl")} " +
                   $"T_TARGET={TTargetMs}ms selected_source={SelectedTargetSource} ACTION_SCALE={ActionHeadScale} " +
-                  $"DEAD_ZONE={DeadZone} DWELL_FRAMES={DwellFrames}. Mode thresholds: headroom_fps={ModeHeadroomFpsFloor} " +
+                  $"DEAD_ZONE={DeadZone} DWELL_FRAMES={DwellFrames} coverage_interval={CoverageSampleInterval} " +
+                  $"lod_switch_window={LodSwitchWindow}. Mode thresholds: headroom_fps={ModeHeadroomFpsFloor} " +
                   $"budget_fps={ModeBudgetFpsFloor} gpu_target={GpuTargetMsBase}ms. Extractor READY.");
+    }
+
+    private bool ValidateRuntimeContractKeys(string json, string fileName)
+    {
+        List<string> missing = null;
+        foreach (string key in RequiredRuntimeContractKeys)
+        {
+            if (json.Contains($"\"{key}\"")) continue;
+            missing ??= new List<string>();
+            missing.Add(key);
+        }
+
+        if (missing == null) return true;
+
+        Debug.LogError($"[RLFeatureExtractor] Runtime contract missing required key(s) in {fileName}: " +
+                       $"{string.Join(", ", missing)}. Regenerate the Stage 4 RL JSON from the Python pipeline.");
+        return false;
     }
 
     [System.Serializable]
@@ -494,6 +572,20 @@ public class RLFeatureExtractor : MonoBehaviour
         public float    bias_min = 0.30f;
         public float    bias_max = 2.00f;
         public int      inference_interval = 2;
+        public int      coverage_sample_interval = 2;
+        public int      lod_switch_window = 30;
+        public float    floor_margin = 0.18f;
+        public float    ceiling_margin = 0.18f;
+        public float    dwell_accumulation_rate = 0.30f;
+        public float    dwell_decay = 0.92f;
+        public float    recovery_eligible_bias = 0.85f;
+        public float    correction_eligible_bias = 1.45f;
+        public float    recovery_growth_threshold = 0.02f;
+        public int      recovery_trigger_frames = 5;
+        public float    recovery_force_multiplier = 1.35f;
+        public float    recovery_force_max = 4.0f;
+        public float    recovery_boost_base = 0.02f;
+        public float    recovery_budget_reset_margin = 0.10f;
         public float    pg_coef = 0.50f;
         public float    bc_coef_start = 1.0f;
         public float    bc_coef_end = 0.5f;

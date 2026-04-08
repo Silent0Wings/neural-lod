@@ -6,13 +6,15 @@ import argparse
 import json
 from pathlib import Path
 
-from config import FEATURE_COLS
+from config import FEATURE_COLS, RUNTIME_CONTRACT_DEFAULTS
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_DIR = SCRIPT_DIR.parents[3]
 DEFAULT_SOURCE_SCALER = REPO_DIR / 'Assets' / 'StreamingAssets' / 'rl_scaler_constants.json'
-DEFAULT_OUTPUT = SCRIPT_DIR / 'rl_null_collection_constants.json'
+UNITY_NULL_JSON = REPO_DIR / 'Assets' / 'StreamingAssets' / 'rl_null_collection_constants.json'
+EXPERIMENT_NULL_JSON = SCRIPT_DIR / 'rl_null_collection_constants.json'
+DEFAULT_OUTPUT = EXPERIMENT_NULL_JSON
 
 
 NULL_COLLECTION_DEFAULTS = {
@@ -24,11 +26,6 @@ NULL_COLLECTION_DEFAULTS = {
     # C# fallback-era scaler defaults used when old JSON files omitted these fields.
     'action_head_scale': 0.20,
     'max_action_delta': 0.20,
-    'dead_zone': 0.02,
-    'dwell_frames': 5,
-    'bias_min': 0.30,
-    'bias_max': 2.00,
-    'inference_interval': 2,
     # Training/reference values carried by RLFeatureExtractor.ScalerData.
     'pg_coef': 0.50,
     'bc_coef_start': 1.0,
@@ -46,8 +43,8 @@ NULL_COLLECTION_DEFAULTS = {
     'recovery_action_regularization': 0.1,
     'target_source': 'scene_warmup_median',
     'collection_mode': 'null_rl',
-    'scene_target_warmup_frames': 64,
 }
+NULL_COLLECTION_DEFAULTS.update(RUNTIME_CONTRACT_DEFAULTS)
 
 
 def load_source_scaler(path: Path) -> dict:
@@ -99,7 +96,12 @@ def parse_args() -> argparse.Namespace:
         '--output',
         type=Path,
         default=DEFAULT_OUTPUT,
-        help=f'Output JSON path. Default: {DEFAULT_OUTPUT}',
+        help=f'Output JSON path. Default writes the in-scope experiment JSON: {DEFAULT_OUTPUT}',
+    )
+    parser.add_argument(
+        '--write-experiment-copy',
+        action='store_true',
+        help=f'Also write a review copy beside this script: {EXPERIMENT_NULL_JSON}',
     )
     parser.add_argument('--t-target-ms', type=float, default=NULL_COLLECTION_DEFAULTS['t_target_ms'])
     parser.add_argument('--action-head-scale', type=float, default=NULL_COLLECTION_DEFAULTS['action_head_scale'])
@@ -137,11 +139,23 @@ def main() -> int:
         json.dump(data, f, indent=2)
         f.write('\n')
 
-    print('Wrote RL null collection JSON:', args.output)
+    wrote_experiment_copy = False
+    if args.write_experiment_copy and args.output.resolve() != EXPERIMENT_NULL_JSON.resolve():
+        EXPERIMENT_NULL_JSON.parent.mkdir(parents=True, exist_ok=True)
+        with open(EXPERIMENT_NULL_JSON, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
+            f.write('\n')
+        wrote_experiment_copy = True
+
+    print('Wrote RL null-mode JSON:', args.output)
+    if wrote_experiment_copy:
+        print('Wrote experiment review copy:', EXPERIMENT_NULL_JSON)
     print('Source scaler:', args.source_scaler)
     print(f't_target_ms={data["t_target_ms"]} action_head_scale={data["action_head_scale"]} '
           f'max_action_delta={data["max_action_delta"]} dead_zone={data["dead_zone"]} '
           f'dwell_frames={data["dwell_frames"]} inference_interval={data["inference_interval"]} '
+          f'recovery_eligible_bias={data["recovery_eligible_bias"]} '
+          f'correction_eligible_bias={data["correction_eligible_bias"]} '
           f'target_source={data["target_source"]} scene_target_warmup_frames={data["scene_target_warmup_frames"]}')
     return 0
 

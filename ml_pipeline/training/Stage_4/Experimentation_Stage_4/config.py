@@ -3,15 +3,44 @@ Stage 4: RL LOD Policy Training - Configuration
 All constants and hyperparameters matching the notebook's config cell.
 """
 # Pipeline stage: shared configuration used by all Stage 4 experiment scripts.
-import torch
 import numpy as np
 from pathlib import Path
+
+try:
+    import torch
+except ModuleNotFoundError:
+    torch = None
 
 # ── Paths ──────────────────────────────────────────────────────────────
 BASE_DIR        = Path(__file__).resolve().parent.parent.parent.parent  # ml_pipeline
 DATA_DIR        = BASE_DIR / 'data' / 'RL' / 'Train' / 'RLRollouts'
 MODEL_DIR       = BASE_DIR / 'models' / 'Stage_4'
 PLOTS_DIR       = BASE_DIR / 'plots' / 'Stage_4' / 'Train'
+
+# ── Unity runtime contract (must match collection and deployment JSON) ─
+RUNTIME_CONTRACT_DEFAULTS = {
+    'dead_zone': 0.02,
+    'dwell_frames': 5,
+    'bias_min': 0.30,
+    'bias_max': 2.00,
+    'inference_interval': 2,
+    'coverage_sample_interval': 2,
+    'lod_switch_window': 30,
+    'floor_margin': 0.18,
+    'ceiling_margin': 0.18,
+    'dwell_accumulation_rate': 0.30,
+    'dwell_decay': 0.92,
+    'recovery_eligible_bias': 0.85,
+    'correction_eligible_bias': 1.45,
+    'recovery_growth_threshold': 0.02,
+    'recovery_trigger_frames': 5,
+    'recovery_force_multiplier': 1.35,
+    'recovery_force_max': 4.0,
+    'recovery_boost_base': 0.02,
+    'recovery_budget_reset_margin': 0.10,
+    'scene_target_warmup_frames': 64,
+}
+RUNTIME_CONTRACT_KEYS = tuple(RUNTIME_CONTRACT_DEFAULTS.keys())
 
 # ── Reward shaping ─────────────────────────────────────────────────────
 BONUS_SCALE           = 1.0
@@ -27,8 +56,8 @@ RECOVERY_REWARD_COEF  = 0.60
 CONTROL_DIRECTION_REWARD_COEF = 0.65
 NEAR_TARGET_ACTION_PENALTY_COEF = 0.08
 LOW_BIAS_PENALTY_COEF = 1.40
-FLOOR_MARGIN          = 0.18
-CEILING_MARGIN        = 0.18
+FLOOR_MARGIN          = RUNTIME_CONTRACT_DEFAULTS['floor_margin']
+CEILING_MARGIN        = RUNTIME_CONTRACT_DEFAULTS['ceiling_margin']
 RECOVERY_BIAS_TARGET  = 1.10
 RECOVERY_BIAS_TOL     = 0.10
 SAFE_RECOVERY_GPU_MARGIN = 0.25
@@ -39,23 +68,27 @@ NEAR_TARGET_CEILING_CORRECTION_SCALE = 0.25
 TARGET_PROX_SIGMA     = 1.75
 
 # ── Runtime guardrails (must match Unity deployment) ───────────────────
-DEAD_ZONE        = 0.02
-DWELL_FRAMES     = 5
-BIAS_MIN         = 0.30
-BIAS_MAX         = 2.00
-DWELL_ACCUMULATION_RATE = 0.30
-DWELL_DECAY            = 0.92
+DEAD_ZONE        = RUNTIME_CONTRACT_DEFAULTS['dead_zone']
+DWELL_FRAMES     = RUNTIME_CONTRACT_DEFAULTS['dwell_frames']
+BIAS_MIN         = RUNTIME_CONTRACT_DEFAULTS['bias_min']
+BIAS_MAX         = RUNTIME_CONTRACT_DEFAULTS['bias_max']
+INFERENCE_INTERVAL = RUNTIME_CONTRACT_DEFAULTS['inference_interval']
+COVERAGE_SAMPLE_INTERVAL = RUNTIME_CONTRACT_DEFAULTS['coverage_sample_interval']
+LOD_SWITCH_WINDOW = RUNTIME_CONTRACT_DEFAULTS['lod_switch_window']
+DWELL_ACCUMULATION_RATE = RUNTIME_CONTRACT_DEFAULTS['dwell_accumulation_rate']
+DWELL_DECAY            = RUNTIME_CONTRACT_DEFAULTS['dwell_decay']
 DWELL_ACTIVE_THRESHOLD = 0.28
 FLOOR_DWELL_RECOVERY_GAIN = 1.35
 CEILING_DWELL_CORRECTION_GAIN = 0.40
-RECOVERY_ELIGIBLE_BIAS = 1.05
-CORRECTION_ELIGIBLE_BIAS = 1.60
-RECOVERY_GROWTH_THRESHOLD = 0.035
-RECOVERY_TRIGGER_FRAMES = 2
-RECOVERY_FORCE_MULTIPLIER = 2.50
-RECOVERY_FORCE_MAX = 9.0
-RECOVERY_BOOST_BASE = 0.12
-RECOVERY_BUDGET_RESET_MARGIN = 0.25
+RECOVERY_ELIGIBLE_BIAS = RUNTIME_CONTRACT_DEFAULTS['recovery_eligible_bias']
+CORRECTION_ELIGIBLE_BIAS = RUNTIME_CONTRACT_DEFAULTS['correction_eligible_bias']
+RECOVERY_GROWTH_THRESHOLD = RUNTIME_CONTRACT_DEFAULTS['recovery_growth_threshold']
+RECOVERY_TRIGGER_FRAMES = RUNTIME_CONTRACT_DEFAULTS['recovery_trigger_frames']
+RECOVERY_FORCE_MULTIPLIER = RUNTIME_CONTRACT_DEFAULTS['recovery_force_multiplier']
+RECOVERY_FORCE_MAX = RUNTIME_CONTRACT_DEFAULTS['recovery_force_max']
+RECOVERY_BOOST_BASE = RUNTIME_CONTRACT_DEFAULTS['recovery_boost_base']
+RECOVERY_BUDGET_RESET_MARGIN = RUNTIME_CONTRACT_DEFAULTS['recovery_budget_reset_margin']
+SCENE_TARGET_WARMUP_FRAMES = RUNTIME_CONTRACT_DEFAULTS['scene_target_warmup_frames']
 
 # ── Legacy weights (not used in reward; retained for report parity) ────
 ALPHA            = 1.0
@@ -103,7 +136,8 @@ BATCH_SIZE            = 256
 RANDOM_SEED           = 42
 
 # ── Seed ───────────────────────────────────────────────────────────────
-torch.manual_seed(RANDOM_SEED)
+if torch is not None:
+    torch.manual_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
 
 # ── Feature specification ──────────────────────────────────────────────
@@ -125,7 +159,7 @@ FEATURE_COLS  = [
 ]
 
 # ── Device ─────────────────────────────────────────────────────────────
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') if torch is not None else None
 
 # ── Derived constants (set after data load) ────────────────────────────
 T_TARGET = None  # Set dynamically by data_loader / reward

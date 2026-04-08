@@ -52,36 +52,15 @@ public class RLPolicyController : MonoBehaviour
 
     private float biasMax => RLFeatureExtractor.BiasMax;
 
-    [Header("Cumulative Recovery Assist")]
-    [Tooltip("Only accumulate upward recovery force while lodBias is at or below this value.")]
-    public float recoveryEligibleBias = 0.85f;
-
-    [Tooltip("Only accumulate downward correction force while lodBias is at or above this value.")]
-    public float correctionEligibleBias = 1.45f;
-
-    [Tooltip("Treat positive actions below this threshold as too weak to count as real recovery.")]
-    [Range(0.0001f, 0.10f)]
-    public float recoveryGrowthThreshold = 0.02f;
-
-    [Tooltip("Number of consecutive negative or too-weak outputs before the upward recovery scalar grows.")]
-    [Range(1, 30)]
-    public int recoveryTriggerFrames = 5;
-
-    [Tooltip("Multiplier applied to the cumulative upward recovery scalar each time the trigger fires.")]
-    [Range(1.0f, 3.0f)]
-    public float recoveryForceMultiplier = 1.35f;
-
-    [Tooltip("Maximum value for the cumulative upward recovery scalar.")]
-    [Range(1.0f, 10.0f)]
-    public float recoveryForceMax = 4.0f;
-
-    [Tooltip("Base positive delta injected when cumulative recovery assist is active.")]
-    [Range(0.0001f, 0.10f)]
-    public float recoveryBoostBase = 0.02f;
-
-    [Tooltip("Reset the cumulative upward recovery scalar once GPU time reaches target minus this margin.")]
-    [Range(0.0f, 1.0f)]
-    public float recoveryBudgetResetMargin = 0.10f;
+    // JSON-owned recovery assist contract loaded by RLFeatureExtractor.
+    private float recoveryEligibleBias => RLFeatureExtractor.RecoveryEligibleBias;
+    private float correctionEligibleBias => RLFeatureExtractor.CorrectionEligibleBias;
+    private float recoveryGrowthThreshold => RLFeatureExtractor.RecoveryGrowthThreshold;
+    private int recoveryTriggerFrames => RLFeatureExtractor.RecoveryTriggerFrames;
+    private float recoveryForceMultiplier => RLFeatureExtractor.RecoveryForceMultiplier;
+    private float recoveryForceMax => RLFeatureExtractor.RecoveryForceMax;
+    private float recoveryBoostBase => RLFeatureExtractor.RecoveryBoostBase;
+    private float recoveryBudgetResetMargin => RLFeatureExtractor.RecoveryBudgetResetMargin;
 
     [Header("Debug")]
     public bool logActions = false;
@@ -130,12 +109,6 @@ public class RLPolicyController : MonoBehaviour
             Debug.LogWarning("[RLPolicyController] No ONNX asset assigned. " +
                              "Using rule-based fallback (gpu_ms > selected target -> reduce bias). " +
                              "Assign onnxAsset after training to switch to neural mode.");
-
-            if (recoveryGrowthThreshold >= RULE_BASED_FALLBACK_STEP)
-            {
-                Debug.LogWarning("[RLPolicyController] recoveryGrowthThreshold >= fallback step. " +
-                                 "Recovery assist may amplify rule-based actions unexpectedly.");
-            }
         }
 
         _currentBias     = QualitySettings.lodBias;
@@ -415,7 +388,17 @@ public class RLPolicyController : MonoBehaviour
         Debug.Log($"[RLPolicyController] Target contract mode={_activeMode} " +
                   $"selected_source={SelectedTargetSource} selected_target={SelectedTargetMs:F3}ms " +
                   $"json_target={RLFeatureExtractor.TTargetMs:F3}ms scene_target={RLFeatureExtractor.SceneTTargetMs:F3}ms " +
-                  $"scene_ready={RLFeatureExtractor.SceneTargetReady}.");
+                  $"scene_ready={RLFeatureExtractor.SceneTargetReady} " +
+                  $"recovery_eligible_bias={recoveryEligibleBias:F3} correction_eligible_bias={correctionEligibleBias:F3} " +
+                  $"recovery_growth_threshold={recoveryGrowthThreshold:F3} recovery_trigger_frames={recoveryTriggerFrames} " +
+                  $"recovery_force_multiplier={recoveryForceMultiplier:F3} recovery_force_max={recoveryForceMax:F3} " +
+                  $"recovery_boost_base={recoveryBoostBase:F3} recovery_budget_reset_margin={recoveryBudgetResetMargin:F3}.");
+
+        if (UsesRuleBasedFallback && recoveryGrowthThreshold >= RULE_BASED_FALLBACK_STEP)
+        {
+            Debug.LogWarning("[RLPolicyController] JSON recovery_growth_threshold >= fallback step. " +
+                             "Recovery assist may amplify rule-based actions unexpectedly.");
+        }
     }
 
     private float SelectedTargetMs => _extractor != null ? _extractor.SelectedTargetMs : RLFeatureExtractor.TTargetMs;

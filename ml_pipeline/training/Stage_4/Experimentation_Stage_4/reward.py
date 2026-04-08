@@ -14,6 +14,7 @@ from config import (
     OVER_BUDGET_COEF, UNDER_BUDGET_COEF, RECOVERY_REWARD_COEF,
     REWARD_CLIP, TARGET_PROX_SIGMA, CONTROL_DEADBAND_MS,
     ACTION_HEAD_SCALE, DEAD_ZONE, PG_COEF, BC_COEF_START, BC_COEF_END,
+    RUNTIME_CONTRACT_DEFAULTS,
 )
 
 
@@ -54,11 +55,6 @@ def fit_scaler(df_clean: pd.DataFrame, t_target: float, run_plots: bool = True):
         't_target_ms': float(t_target),
         'action_head_scale': ACTION_HEAD_SCALE,
         'max_action_delta': ACTION_HEAD_SCALE,
-        'dead_zone': 0.02,
-        'dwell_frames': 5,
-        'bias_min': 0.30,
-        'bias_max': 2.00,
-        'inference_interval': 2,
         'pg_coef': float(PG_COEF),
         'bc_coef_start': BC_COEF_START,
         'bc_coef_end': BC_COEF_END,
@@ -79,12 +75,13 @@ def fit_scaler(df_clean: pd.DataFrame, t_target: float, run_plots: bool = True):
         'target_source': 'json_training',
         'training_target_source': target_export_source,
         'collection_mode': 'active_rl',
-        'scene_target_warmup_frames': 64,
     }
+    scaler_data.update(RUNTIME_CONTRACT_DEFAULTS)
 
     scaler_path = MODEL_DIR / 'rl_scaler_constants.json'
     with open(scaler_path, 'w', encoding='utf-8') as f:
         json.dump(scaler_data, f, indent=2)
+        f.write('\n')
 
     print('Scaling OK:', X_scaled.shape)
     print('Saved:', scaler_path)
