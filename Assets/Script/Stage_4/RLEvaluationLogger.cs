@@ -86,6 +86,7 @@ public class RLEvaluationLogger : MonoBehaviour
 
     private RLFeatureExtractor _extractor;
     private RLRolloutLogger    _rolloutLogger; // optional; used to detect episode boundaries
+    private RLPolicyController _policyController; // optional; null-model mode guard
 
     private bool _logging      = false;
     private int  _warmup       = 0;
@@ -128,9 +129,17 @@ public class RLEvaluationLogger : MonoBehaviour
     {
         _extractor     = GetComponent<RLFeatureExtractor>();
         _rolloutLogger = GetComponent<RLRolloutLogger>();
+        _policyController = GetComponent<RLPolicyController>();
+        EnforceNullModelRewardContract();
 
         if (targetCamera == null)
             targetCamera = Camera.main;
+    }
+
+    void OnValidate()
+    {
+        _policyController = GetComponent<RLPolicyController>();
+        EnforceNullModelRewardContract();
     }
 
     void Start()
@@ -418,6 +427,15 @@ public class RLEvaluationLogger : MonoBehaviour
         _targetStartMs = tTargetMs;
         _targetSourceStart = targetSource;
         _episodeTargetStartCaptured = false;
+    }
+
+    private void EnforceNullModelRewardContract()
+    {
+        if (_policyController == null || !_policyController.UsesRuleBasedFallback) return;
+        if (Mathf.Approximately(gamma, 0f)) return;
+
+        Debug.LogWarning("[RLEvaluationLogger] No ONNX model assigned. Forcing gamma to 0 for null-model collection.");
+        gamma = 0f;
     }
 
     // ── IO Helpers ─────────────────────────────────────────────────────────
