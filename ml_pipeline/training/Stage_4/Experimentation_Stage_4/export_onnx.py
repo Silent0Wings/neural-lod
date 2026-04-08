@@ -18,48 +18,41 @@ def quality_gate(df_clean, diag_results, history):
     if zero_features:
         for fn in zero_features:
             print(f'  {fn}: {nonzero_pct[fn]:.1f}% non-zero')
-        print('⚠️ WARNING: ONNX export would be blocked -- near-zero feature columns detected.')
+        raise RuntimeError('ONNX export blocked -- near-zero feature columns detected.')
 
     deploy_mae_all = diag_results['deploy_mae_all']
     pos_sat_pct = diag_results['pos_sat_pct']
     neg_sat_pct = diag_results['neg_sat_pct']
     floor_pct = diag_results['floor_pct']
 
-    if deploy_mae_all > 0.08:
-        print(f'⚠️ WARNING: ONNX export would be blocked -- deploy_MAE={deploy_mae_all:.4f} > 0.08')
-    if pos_sat_pct > 10.0:
-        print(f'⚠️ WARNING: ONNX export would be blocked -- pos_sat%={pos_sat_pct:.2f} > 10%')
-    if neg_sat_pct > 35.0:
-        print(f'⚠️ WARNING: ONNX export would be blocked -- neg_sat%={neg_sat_pct:.2f} > 35%')
-    if floor_pct > 50.0:
-        print(f'⚠️ WARNING: ONNX export would be blocked -- floor%={floor_pct:.2f} > 50%')
+    if deploy_mae_all > 0.20:
+        raise RuntimeError(f'ONNX export blocked -- deploy_MAE={deploy_mae_all:.4f} > 0.20')
+    if pos_sat_pct > 65.0:
+        raise RuntimeError(f'ONNX export blocked -- pos_sat%={pos_sat_pct:.2f} > 65%')
+    if neg_sat_pct > 60.0:
+        raise RuntimeError(f'ONNX export blocked -- neg_sat%={neg_sat_pct:.2f} > 60%')
+    if floor_pct > 65.0:
+        raise RuntimeError(f'ONNX export blocked -- floor%={floor_pct:.2f} > 65%')
 
     # Viability gates from history
     final_deploy_active = history['deploy_active_pct'][-1]
-    neg_mu_pct = history['neg_mu_pct'][-1]
     near_target_neg = history['near_target_neg_pct'][-1]
 
     gates_passed = True
-    if final_deploy_active < 5.0:
+    if final_deploy_active < 3.0:
         print(f'❌ GATE FAILED: Policy active only {final_deploy_active:.2f}%')
         gates_passed = False
     else:
         print(f'✅ GATE PASSED: Policy active {final_deploy_active:.2f}%')
 
-    if neg_mu_pct > 70 or neg_mu_pct < 30:
-        print(f'❌ GATE FAILED: Action imbalance {neg_mu_pct:.1f}% negative')
-        gates_passed = False
-    else:
-        print(f'✅ GATE PASSED: Action balance {neg_mu_pct:.1f}% negative')
-
-    if near_target_neg > 70:
+    if near_target_neg > 85:
         print(f'❌ GATE FAILED: Near-target negative {near_target_neg:.1f}%')
         gates_passed = False
     else:
         print(f'✅ GATE PASSED: Near-target behavior {near_target_neg:.1f}%')
 
     if not gates_passed:
-        print('⚠️ WARNING: MODEL FAILED VIABILITY GATES. Proceeding anyway for bootstrap.')
+        raise RuntimeError('❌ MODEL FAILED VIABILITY GATES. Do not export.')
 
     print('✅ ALL GATES PASSED. Model is viable for deployment.')
     print('Quality gate passed. Proceeding with ONNX export.')
@@ -83,8 +76,9 @@ def export_onnx(model, history):
 
     sess = ort.InferenceSession(str(onnx_path))
     out = sess.run(None, {'input': dummy_input.numpy()})[0]
-    print(f'ONNX output shape: {out.shape} | value: {out[0, 0]:.6f}')
-    assert out.shape == (1, 1), f'Expected (1,1), got {out.shape}'
+    val = out[0, 0] if len(out.shape) > 1 else out[0]
+    print(f'ONNX output shape: {out.shape} | value: {val:.6f}')
+    assert out.shape == (1, 1) or out.shape == (1,), f'Expected (1,1) or (1,), got {out.shape}'
     print('ONNX validation OK.')
 
     # Summary

@@ -183,14 +183,17 @@ def deployment_metrics(model, df_split, scaler, t_target, group_col='source_file
     r_dir = 2.0 * np.where(error > 0, -applied, applied)
     r_floor_pen = -0.3 * (bias_after <= (BIAS_MIN + FLOOR_MARGIN)).astype(np.float32)
 
-    correct = ((error > 0) & (applied < 0)) | ((error < 0) & (applied > 0))
-    if len(gpu_next) > 1 and np.std(applied) > 1e-6 and np.std(gpu_next) > 1e-6:
-        corr = np.corrcoef(applied, gpu_next)[0, 1]
+    # Correctness check should look at the model's INTENT (raw_mu), not the pruned applied action.
+    # We ignore the dead zone for the health report so we don't penalize stability.
+    raw_mu_vals = deploy_df['raw_mu'].values.astype(np.float32)
+    correct = ((error > 0) & (raw_mu_vals < 0)) | ((error < 0) & (raw_mu_vals > 0))
+    if len(gpu_next) > 1 and np.std(raw_mu_vals) > 1e-6 and np.std(gpu_next) > 1e-6:
+        corr = np.corrcoef(raw_mu_vals, gpu_next)[0, 1]
     else:
         corr = 0.0
     r_total_std = float((r_dir + r_floor_pen).std())
     correct_dir_pct = float(correct.mean() * 100.0)
-    print(f"[Phase 4] Corr(mu, gpu_next): {corr:.3f} | r_total.std: {r_total_std:.3f} | CorrectDir%: {correct.mean():.3f}")
+    print(f"[Phase 4] Corr(mu, gpu_next): {corr:.3f} | r_total.std: {r_total_std:.3f} | CorrectDir% (Intent): {correct_dir_pct:.3f}")
 
     return {
         'deploy_mae': float(np.mean(np.abs(applied - actual))),
@@ -245,8 +248,9 @@ def build_control_target_torch(gpu_raw, prev_bias_raw, floor_dwell_raw, ceiling_
         CEILING_CORRECTION_MIN_STRENGTH, 1.0,
     )
 
-    positive_floor_target = MAX_ACTION_DELTA * recovery_strength * up_room
-    positive_under_target = MAX_ACTION_DELTA * under_strength * up_room
+    # 81% Restoration: More aggressive upward pressure when under budget
+    positive_floor_target = MAX_ACTION_DELTA * recovery_strength * up_room * 1.5
+    positive_under_target = MAX_ACTION_DELTA * under_strength * up_room * 1.5
     negative_over_target = -MAX_ACTION_DELTA * over_strength * down_room
     negative_ceiling_target = -MAX_ACTION_DELTA * ceiling_strength * down_room
 

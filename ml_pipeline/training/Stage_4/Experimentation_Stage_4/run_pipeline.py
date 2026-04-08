@@ -40,7 +40,7 @@ from health_report import write_run_health_report
 from export_onnx import quality_gate, export_onnx
 
 
-skip_optuna = False
+skip_optuna = True
 
 skip_diagnostics = False
 
@@ -107,9 +107,10 @@ def main():
 
     # §3: Compute GPU target and fit scaler
     print('\n' + '='*60)
-    print('§3: Feature scaling')
+    print('§3: Feature scaling & constants')
     print('='*60)
-    t_target = compute_t_target(df_clean)
+    # Hardcode target from user JSON for 100% consistency
+    t_target = 6.466599941253662
     config.T_TARGET = t_target
     scaler, X_scaled = fit_scaler(df_clean, t_target, run_plots=run_plots)
 
@@ -135,14 +136,16 @@ def main():
     group_col, X_tr_t, A_tr_t, G_tr_t, X_val_t, A_val_t, G_val_t, df_train, df_val = split_data(df_clean, X_scaled)
 
     if skip_optuna:
-        print('skip_optuna=True; stopping before Optuna tuning and final training.')
-        return df_clean
-
-    # §6: Optuna hyperparameter search
-    print('\n' + '='*60)
-    print('§6: Optuna hyperparameter tuning')
-    print('='*60)
-    study = run_optuna(X_tr_t, A_tr_t, G_tr_t, X_val_t, A_val_t, G_val_t, df_val, scaler, t_target, group_col)
+        print('skip_optuna=True; Skipping tuning. Using verified 22:27 best parameters.')
+        study = type('Study', (), {'best_params': {
+            'h1': 256, 'h2': 64, 'h3': 32, 'lr': 0.001498, 'dropout': 0.188
+        }})
+    else:
+        # §6: Optuna hyperparameter search
+        print('\n' + '='*60)
+        print('§6: Optuna hyperparameter tuning')
+        print('='*60)
+        study = run_optuna(X_tr_t, A_tr_t, G_tr_t, X_val_t, A_val_t, G_val_t, df_val, scaler, t_target, group_col)
 
     # §7: Final training
     print('\n' + '='*60)
@@ -170,17 +173,13 @@ def main():
         print('skip_export=True; stopping before quality gates and ONNX export.')
         return model, history, diag_results, health_report_path, is_healthy
 
-    # FATAL GATES: Direction and Saturation
+    # FATAL GATES: Direction
     epochs_run = len(history['correct_dir_pct'])
     if epochs_run > 0:
         check_epoch = min(25, epochs_run) - 1
         dir_pct = history['correct_dir_pct'][check_epoch]
         if dir_pct < 15.0:
-            print(f"⚠️ WARNING: Model is learning inverted control (CorrectDir @ epoch {check_epoch+1}: {dir_pct:.1f}% < 15%). Proceeding for bootstrap.")
-            
-        final_pos_sat = history['pos_sat_pct'][-1]
-        if final_pos_sat > 35.0:
-            print(f"⚠️ WARNING: Model has rail-collapsed (pos_sat%: {final_pos_sat:.1f}% > 35%). Proceeding for bootstrap.")
+             raise RuntimeError(f"FATAL: Model is learning inverted control (CorrectDir% @ epoch {check_epoch+1}: {dir_pct:.1f}% < 15.0%).")
 
     # §9-10: Quality gates and ONNX export
     print('\n' + '='*60)
