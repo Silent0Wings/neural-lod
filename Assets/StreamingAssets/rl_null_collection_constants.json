@@ -85,5 +85,7 @@
   "recovery_force_max": 4.0,
   "recovery_boost_base": 0.02,
   "recovery_budget_reset_margin": 0.1,
-  "scene_target_warmup_frames": 64
+  "scene_target_warmup_frames": 64,
+  "dwell_seconds": 0.5,
+  "ema_alpha": 0.2
 }

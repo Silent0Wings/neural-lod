@@ -9,7 +9,7 @@ import torch.nn as nn
 
 from config import (
     MAX_ACTION_DELTA, FEATURE_COLS, FEATURE_COUNT,
-    DEAD_ZONE, DWELL_FRAMES, BIAS_MIN, BIAS_MAX, FLOOR_MARGIN, CEILING_MARGIN,
+    DEAD_ZONE, DWELL_FRAMES, DWELL_SECONDS, EMA_ALPHA, BIAS_MIN, BIAS_MAX, FLOOR_MARGIN, CEILING_MARGIN,
     DWELL_ACTIVE_THRESHOLD, FLOOR_DWELL_RECOVERY_GAIN, CEILING_DWELL_CORRECTION_GAIN,
     RECOVERY_ELIGIBLE_BIAS, CORRECTION_ELIGIBLE_BIAS,
     RECOVERY_GROWTH_THRESHOLD, RECOVERY_TRIGGER_FRAMES,
@@ -18,7 +18,7 @@ from config import (
     FLOOR_RECOVERY_MIN_STRENGTH, CEILING_CORRECTION_MIN_STRENGTH,
     SAFE_RECOVERY_GPU_MARGIN, UNDER_BUDGET_MARGIN, CONTROL_DEADBAND_MS,
     CONTROL_RESPONSE_MS, SOFT_SUPPORT_LIMIT, SUPPORT_MARGIN,
-    SAT_WARN_THRESHOLD, DEPLOY_ACTIVE_TARGET,
+    SAT_WARN_THRESHOLD, DEPLOY_ACTIVE_TARGET, INFERENCE_INTERVAL,
     GPU_FEATURE_IDX, BIAS_FEATURE_IDX,
     FLOOR_DWELL_FEATURE_IDX, CEILING_DWELL_FEATURE_IDX,
     PG_COEF, device,
@@ -55,20 +55,28 @@ def linear_schedule(start, end, progress):
     return start + (end - start) * progress
 
 
-def apply_runtime_guardrails_np(raw_mu, gpu_ms, start_bias, t_target):
+def apply_runtime_guardrails_np(raw_mu, gpu_ms, start_bias, t_target, dt_per_step=None):
     """Simulate Unity runtime guardrails (dead zone, dwell, recovery)."""
     raw_mu = np.clip(np.asarray(raw_mu, dtype=np.float32), -MAX_ACTION_DELTA, MAX_ACTION_DELTA)
     gpu_ms = np.asarray(gpu_ms, dtype=np.float32)
     applied = np.zeros_like(raw_mu, dtype=np.float32)
     bias_trace = np.zeros_like(raw_mu, dtype=np.float32)
     bias = float(start_bias)
-    frames_since_switch = DWELL_FRAMES
+    if dt_per_step is None:
+        dt_per_step = float(INFERENCE_INTERVAL) / 60.0  # ~0.033s per step at 60Hz
+    time_since_switch = float(DWELL_SECONDS)  # pre-warmed: first step always eligible
+    prev_smoothed = 0.0
     weak_upward_count = 0
     recovery_scalar = 1.0
     weak_downward_count = 0
     correction_scalar = 1.0
 
     for i, delta in enumerate(raw_mu):
+        # Apply EMA smoothing to filter oscillations
+        smoothed = float(EMA_ALPHA) * float(delta) + (1.0 - float(EMA_ALPHA)) * prev_smoothed
+        prev_smoothed = smoothed
+        delta = smoothed
+
         gpu_t = float(gpu_ms[i]) if i < len(gpu_ms) else float(t_target)
         low_bias = bias <= float(RECOVERY_ELIGIBLE_BIAS)
         high_bias = bias >= float(CORRECTION_ELIGIBLE_BIAS)
@@ -107,11 +115,11 @@ def apply_runtime_guardrails_np(raw_mu, gpu_ms, start_bias, t_target):
 
         if abs(delta) < DEAD_ZONE:
             bias_trace[i] = bias
-            frames_since_switch += 1
+            time_since_switch += dt_per_step
             continue
-        if frames_since_switch < DWELL_FRAMES:
+        if time_since_switch < float(DWELL_SECONDS):
             bias_trace[i] = bias
-            frames_since_switch += 1
+            time_since_switch += dt_per_step
             continue
 
         new_bias = float(np.clip(bias + float(delta), BIAS_MIN, BIAS_MAX))
@@ -119,13 +127,13 @@ def apply_runtime_guardrails_np(raw_mu, gpu_ms, start_bias, t_target):
         if abs(actual) < DEAD_ZONE:
             bias = new_bias
             bias_trace[i] = bias
-            frames_since_switch += 1
+            time_since_switch += dt_per_step
             continue
 
         applied[i] = actual
         bias = new_bias
         bias_trace[i] = bias
-        frames_since_switch = 0
+        time_since_switch = 0.0
 
     bias_trace = np.where(bias_trace == 0.0, bias, bias_trace).astype(np.float32)
     return applied, bias_trace

@@ -52,6 +52,8 @@ _RUNTIME_CONTRACT_BASE = {
     'recovery_boost_base': 0.02,
     'recovery_budget_reset_margin': 0.10,
     'scene_target_warmup_frames': 64,
+    'dwell_seconds': 0.5,
+    'ema_alpha': 0.2,
 }
 _RUNTIME_CONTRACT_KEYS = tuple(_RUNTIME_CONTRACT_BASE.keys())
 
@@ -105,8 +107,10 @@ TARGET_PROX_SIGMA     = 1.75
 # ── Runtime guardrails (must match Unity deployment) ───────────────────
 DEAD_ZONE        = RUNTIME_CONTRACT_DEFAULTS['dead_zone']
 DWELL_FRAMES     = RUNTIME_CONTRACT_DEFAULTS['dwell_frames']
+DWELL_SECONDS    = RUNTIME_CONTRACT_DEFAULTS['dwell_seconds']
 BIAS_MIN         = RUNTIME_CONTRACT_DEFAULTS['bias_min']
 BIAS_MAX         = RUNTIME_CONTRACT_DEFAULTS['bias_max']
+EMA_ALPHA        = RUNTIME_CONTRACT_DEFAULTS['ema_alpha']
 INFERENCE_INTERVAL = RUNTIME_CONTRACT_DEFAULTS['inference_interval']
 COVERAGE_SAMPLE_INTERVAL = RUNTIME_CONTRACT_DEFAULTS['coverage_sample_interval']
 LOD_SWITCH_WINDOW = RUNTIME_CONTRACT_DEFAULTS['lod_switch_window']

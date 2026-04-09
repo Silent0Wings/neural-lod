@@ -45,6 +45,12 @@ public class RLPolicyController : MonoBehaviour
     [Tooltip("Loaded from scaler JSON at runtime. Minimum frames between consecutive bias changes.")]
     private int dwellFrames => RLFeatureExtractor.DwellFrames;
 
+    [Tooltip("Loaded from scaler JSON at runtime. Minimum seconds between consecutive bias changes.")]
+    private float dwellSeconds => RLFeatureExtractor.DwellSeconds;
+
+    [Tooltip("Loaded from scaler JSON at runtime. EMA smoothing factor for action delta (0-1).")]
+    private float emaAlpha => RLFeatureExtractor.EmaAlpha;
+
     [Tooltip("Loaded from scaler JSON at runtime. Maximum bias delta magnitude per step.")]
     private float maxActionDelta => RLFeatureExtractor.MaxActionDelta;
 
@@ -83,6 +89,8 @@ public class RLPolicyController : MonoBehaviour
     private Model  _model;
 
     private int _lastSwitchFrame;
+    private float _lastSwitchTime  = -999f;  // pre-warms: first step always eligible
+    private float _smoothedDelta   = 0f;
     private bool _targetLogged = false;
 
     private const int INPUT_DIM = RLFeatureExtractor.FEATURE_COUNT;
@@ -113,6 +121,8 @@ public class RLPolicyController : MonoBehaviour
 
         _currentBias     = QualitySettings.lodBias;
         _lastSwitchFrame = Time.frameCount;
+        _lastSwitchTime  = Time.time - 999f;  // pre-warmed: eligible from first step
+        _smoothedDelta   = 0f;
         _consecutiveWeakUpwardFrames = 0;
         _upwardRecoveryScalar = 1.0f;
         _consecutiveWeakDownwardFrames = 0;
@@ -147,10 +157,12 @@ public class RLPolicyController : MonoBehaviour
             : GetRuleBasedDelta();
 
         _rawDelta = delta;
+        // Apply EMA smoothing to filter oscillations
+        _smoothedDelta = (delta * emaAlpha) + (_smoothedDelta * (1f - emaAlpha));
         if (_logger != null)
             _logger.LastRawActionDelta = delta;
 
-        ApplyWithGuardrails(delta);
+        ApplyWithGuardrails(_smoothedDelta);
     }
 
     void OnDestroy()
@@ -169,6 +181,8 @@ public class RLPolicyController : MonoBehaviour
         QualitySettings.lodBias = 1.0f;
         _currentBias            = 1.0f;
         _lastSwitchFrame        = Time.frameCount;
+        _lastSwitchTime         = Time.time - 999f;  // pre-warmed: eligible from first step
+        _smoothedDelta          = 0f;
         _consecutiveWeakUpwardFrames = 0;
         _upwardRecoveryScalar = 1.0f;
         _consecutiveWeakDownwardFrames = 0;
@@ -262,8 +276,8 @@ public class RLPolicyController : MonoBehaviour
             return;
         }
 
-        // 2. Dwell guard — enforce minimum frames between consecutive changes.
-        if (Time.frameCount - _lastSwitchFrame < dwellFrames)
+        // 2. Dwell guard — enforce minimum seconds between consecutive changes.
+        if (Time.time - _lastSwitchTime < dwellSeconds)
         {
             if (_logger != null) _logger.LastActionDelta = 0f;
             return;
@@ -289,6 +303,7 @@ public class RLPolicyController : MonoBehaviour
         QualitySettings.lodBias = newBias;
         _currentBias            = newBias;
         _lastSwitchFrame        = Time.frameCount;
+        _lastSwitchTime         = Time.time;
 
         // 5. Hand off to logger (must be set before LateUpdate reads it)
         if (_logger != null)

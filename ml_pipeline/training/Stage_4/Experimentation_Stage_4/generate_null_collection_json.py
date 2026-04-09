@@ -108,9 +108,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--max-action-delta', type=float, default=NULL_COLLECTION_DEFAULTS['max_action_delta'])
     parser.add_argument('--dead-zone', type=float, default=NULL_COLLECTION_DEFAULTS['dead_zone'])
     parser.add_argument('--dwell-frames', type=int, default=NULL_COLLECTION_DEFAULTS['dwell_frames'])
+    parser.add_argument('--dwell-seconds', type=float, default=NULL_COLLECTION_DEFAULTS['dwell_seconds'])
     parser.add_argument('--bias-min', type=float, default=NULL_COLLECTION_DEFAULTS['bias_min'])
     parser.add_argument('--bias-max', type=float, default=NULL_COLLECTION_DEFAULTS['bias_max'])
     parser.add_argument('--inference-interval', type=int, default=NULL_COLLECTION_DEFAULTS['inference_interval'])
+    parser.add_argument('--ema-alpha', type=float, default=NULL_COLLECTION_DEFAULTS['ema_alpha'])
     parser.add_argument('--scene-target-warmup-frames', type=int, default=NULL_COLLECTION_DEFAULTS['scene_target_warmup_frames'])
     return parser.parse_args()
 
@@ -127,9 +129,11 @@ def main() -> int:
             'max_action_delta': args.max_action_delta,
             'dead_zone': args.dead_zone,
             'dwell_frames': args.dwell_frames,
+            'dwell_seconds': args.dwell_seconds,
             'bias_min': args.bias_min,
             'bias_max': args.bias_max,
             'inference_interval': args.inference_interval,
+            'ema_alpha': args.ema_alpha,
             'scene_target_warmup_frames': args.scene_target_warmup_frames,
         },
     )
@@ -153,7 +157,8 @@ def main() -> int:
     print('Source scaler:', args.source_scaler)
     print(f't_target_ms={data["t_target_ms"]} action_head_scale={data["action_head_scale"]} '
           f'max_action_delta={data["max_action_delta"]} dead_zone={data["dead_zone"]} '
-          f'dwell_frames={data["dwell_frames"]} inference_interval={data["inference_interval"]} '
+          f'dwell_frames={data["dwell_frames"]} dwell_seconds={data["dwell_seconds"]} '
+          f'ema_alpha={data["ema_alpha"]} inference_interval={data["inference_interval"]} '
           f'recovery_eligible_bias={data["recovery_eligible_bias"]} '
           f'correction_eligible_bias={data["correction_eligible_bias"]} '
           f'target_source={data["target_source"]} scene_target_warmup_frames={data["scene_target_warmup_frames"]}')

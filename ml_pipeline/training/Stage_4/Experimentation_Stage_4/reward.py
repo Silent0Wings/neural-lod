@@ -86,6 +86,8 @@ def fit_scaler(df_clean: pd.DataFrame, t_target: float, run_plots: bool = True):
 
     print('Scaling OK:', X_scaled.shape)
     print('Saved:', scaler_path)
+    print(f'  Runtime contract: dwell_seconds={scaler_data["dwell_seconds"]} ema_alpha={scaler_data["ema_alpha"]} '
+          f'dwell_frames={scaler_data["dwell_frames"]} dead_zone={scaler_data["dead_zone"]}')
 
     if run_plots:
         # Plot feature distributions

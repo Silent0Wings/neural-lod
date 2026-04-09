@@ -138,6 +138,8 @@ public class RLFeatureExtractor : MonoBehaviour
     public static float SceneTTargetMs { get; private set; } = 4.5f;
     public static bool SceneTargetReady { get; private set; } = false;
     public static int SceneTargetWarmupFrames { get; private set; } = 64;
+    public static float DwellSeconds { get; private set; } = 0.5f;
+    public static float EmaAlpha     { get; private set; } = 0.2f;
 
     // ── Mode-based loss hyperparameters (from training) ──────────────────
     public static float GpuTargetMsBase { get; private set; } = 4.5f;
@@ -508,6 +510,8 @@ public class RLFeatureExtractor : MonoBehaviour
         RecoveryForceMax = Mathf.Max(1.0f, data.recovery_force_max);
         RecoveryBoostBase = Mathf.Max(0.0001f, data.recovery_boost_base);
         RecoveryBudgetResetMargin = Mathf.Max(0.0f, data.recovery_budget_reset_margin);
+        DwellSeconds = Mathf.Max(0.05f, data.dwell_seconds);
+        EmaAlpha     = Mathf.Clamp(data.ema_alpha, 0.01f, 1.0f);
         coverageSampleInterval = CoverageSampleInterval;
         lodSwitchWindow = LodSwitchWindow;
         floorMargin = FloorMargin;
@@ -608,5 +612,7 @@ public class RLFeatureExtractor : MonoBehaviour
         public string   target_source = "json_training";
         public int      scene_target_warmup_frames = 64;
         public string   collection_mode = "active_rl";
+        public float    dwell_seconds = 0.5f;
+        public float    ema_alpha     = 0.2f;
     }
 }
