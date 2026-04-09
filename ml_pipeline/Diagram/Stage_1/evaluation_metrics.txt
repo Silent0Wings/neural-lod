@@ -1,9 +1,12 @@
-@startuml Stage_1_Evaluation_Metrics
+@startuml Stage_1_Evaluation_Metrics_Wide
 
-title Stage 1: Evaluation & Metrics Analysis (Activity)
+title Stage 1: Evaluation & Metrics Analysis (Activity - Lossless Wide)
 
+skinparam conditionStyle diamond
+skinparam defaultTextAlignment left
+
+|#AliceBlue|Data Parsing & Latency|
 start
-
 :EvaluationLogger or
 compare_train_vs_eval.ipynb
 Loads eval_neural_*.csv;
@@ -17,53 +20,56 @@ Loads eval_neural_*.csv;
 
 :Compute Performance Statistics;
 
-  :Calculate mean, median,
-  P95, P99, max CPU time;
+:Calculate mean, median,
+P95, P99, max CPU time;
 
-  :Count frames over
-  TARGET_FRAME_MS (16.66ms);
+|#GhostWhite|Budget & Stability|
+:Count frames over
+TARGET_FRAME_MS (16.66ms);
 
-  :Percentage over-budget =
-  frames_over / total_frames;
+:Percentage over-budget =
+frames_over / total_frames;
 
-  :Mean LOD bias value;
-  :Std dev of bias;
-  :Distribution histogram;
+:Mean LOD bias value;
+:Std dev of bias;
+:Distribution histogram;
 
-  :Calculate flip_rate_hz =
-  bias_switches / elapsed_seconds;
+:Calculate flip_rate_hz =
+bias_switches / elapsed_seconds;
 
-  if (flip_rate_hz < 1.0 Hz) then (yes)
-    :✓ STABLE (acceptable jitter)
-  else
-    :⚠ JITTERY (needs filter)
-  endif
+if (flip_rate_hz < 1.0 Hz) then (yes)
+  :✅ STABLE (acceptable jitter);
+else (no)
+  :⚠ JITTERY (needs filter);
+endif
 
-  :Angular delta between frames
-  (to detect flicker);
+|#AliceBlue|ROI & Logic|
+:Angular delta between frames
+(to detect flicker);
 
-  :Correlation - bias vs velocity
-  (should be positive);
+:Correlation - bias vs velocity
+(should be positive);
 
-  :GPU Savings (ms) =
-  aggressive_gpu_time - current_gpu_time;
+:GPU Savings (ms) =
+aggressive_gpu_time - current_gpu_time;
 
-  :Inference Cost (ms) =
-  model_forward_pass_duration;
+:Inference Cost (ms) =
+model_forward_pass_duration;
 
-  :Net Gain = GPU_Savings - Inference_Cost;
+:Net Gain = GPU_Savings - Inference_Cost;
 
-  if (Net Gain > 0.5 ms) then (yes)
-    :✓ PROFITABLE (worth using)
-  else
-    :⚠ BREAK-EVEN or LOSS
-    (model too slow or bias not aggressive)
-  endif
+if (Net Gain > 0.5 ms) then (yes)
+  :✅ PROFITABLE (worth using);
+else (no)
+  :⚠ BREAK-EVEN or LOSS
+  (model too slow or bias not aggressive);
+endif
 
+|#GhostWhite|Plots & Reporting|
 :Output Comparison Plots;
 
 note right
-  compare_eval_vs_train.png
+  **compare_eval_vs_train.png**
   Contains 9 subplots:
   - CPU/GPU latency curves
   - Bias time-series
@@ -76,14 +82,14 @@ end note
 :Print Summary Report;
 
 note right
-  Sample output:
+  **Sample output:**
   ──────────────────
   EVAL DATA
   CPU mean: 15.32 ms
   CPU P95: 18.45 ms
   Over-budget: 5.2%
-  Flip rate: 0.8 Hz ✓
-  Net gain: +0.52 ms ✓
+  Flip rate: 0.8 Hz ✅
+  Net gain: +0.52 ms ✅
   ──────────────────
 end note
 

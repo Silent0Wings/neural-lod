@@ -1,9 +1,12 @@
-@startuml Stage_1_DataCollection_Orchestration
+@startuml Stage_1_DataCollection_Orchestration_Wide
 
-title Stage 1: Data Collection Orchestration (Activity)
+title Stage 1: Data Collection Orchestration (Activity - Lossless Wide)
 
+skinparam conditionStyle diamond
+skinparam defaultTextAlignment left
+
+|#AliceBlue|Initialization & Run Setup|
 start
-
 :DataCollectionOrchestrator
 Awake();
 note right
@@ -25,6 +28,7 @@ end note
 
 :_totalRuns = biases × speeds × rotations;
 
+|#GhostWhite|Warmup & Control|
 repeat
   :lodController.UpdateBias(bias)
   → Set QualitySettings.lodBias;
@@ -51,6 +55,7 @@ repeat
 
   :Wait for warmupDelay seconds;
 
+|#AliceBlue|Metric Logging Loop|
   :logger.ResetLogger(index, speed, rot)
   → Open new CSV file
   → Reset _validRows counter;
@@ -66,9 +71,11 @@ repeat
     MetricLogger.Update()
     - Capture profiler data
     - Log row to buffer
-    - Check row cap (5000 rows)
-  until row cap reached?
+    - Check row cap (5000 rows);
+  repeat while (row cap reached?) is (no)
+  ->yes;
 
+|#GhostWhite|Completion & Output|
   :MetricLogger.StopLogging()
   → Flush remaining rows to CSV;
 
@@ -79,7 +86,8 @@ repeat
   → ml_pipeline/data/
   training_data_bias_X_spd_Y_rot_Z.csv;
 
-repeat while (more runs exist?)
+repeat while (more runs exist?) is (yes)
+->no;
 
 :All runs completed;
 :_allDone = true;

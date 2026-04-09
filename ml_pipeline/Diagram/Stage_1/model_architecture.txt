@@ -1,58 +1,34 @@
-@startuml Stage_1_ModelArchitecture
+@startuml Stage_1_ModelArchitecture_Wide
 
-title Stage 1: Neural LOD Controller Architecture
+title Stage 1: Neural LOD Controller Architecture (Horizontal Layout)
 
-object Input
-object Layer1
-object Layer2
-object Layer3
-object Output
-object Guards
+skinparam componentStyle rectangle
+skinparam defaultTextAlignment left
+skinparam component {
+  BackgroundColor #FAFAFA
+  BorderColor #333
+}
 
-Input : 19 normalized features
-Input : cpu/gpu frame times
-Input : triangle count
-Input : camera velocity
-Input : camera angular velocity
-Input : visible renderer count
-Input : draw call estimate
-Input : frame headroom
-Input : screen coverage
-Input : lod bias current
-Input : fps
-Input : camera position (x, y, z)
-Input : camera rotation (y)
-Input : path progress
-Input : waypoint index
-Input : move speed, rotate speed
+' --- 1. DEFINITIONS (LOSSLESS) ---
 
-Layer1 : Shape: 19 to 64
-Layer1 : ReLU activation
-Layer1 : 1,280 parameters
+component "**Input Layer**\n19 Normalized Features:\n- CPU/GPU times, FPS, Headroom\n- Triangle count, Draw calls\n- Cam Velocity/Rot, Coverage\n- Pos (x,y,z), Rot (y)\n- Path/Waypoint index\n- Move/Rotate speeds" as Input
 
-Layer2 : Shape: 64 to 32
-Layer2 : ReLU activation
-Layer2 : 2,080 parameters
+component "**Layer 1** (Dense)\n- Shape: 19 → 64\n- ReLU activation\n- 1,280 parameters" as L1
 
-Layer3 : Shape: 32 to 16
-Layer3 : ReLU activation
-Layer3 : 528 parameters
+component "**Layer 2** (Dense)\n- Shape: 64 → 32\n- ReLU activation\n- 2,080 parameters" as L2
 
-Output : Shape: 16 to 1
-Output : Sigmoid activation
-Output : 17 parameters
-Output : Range: [0, 1] to [0.25, 2.0]
-Output : Total params: 3,905
+component "**Layer 3** (Dense)\n- Shape: 32 → 16\n- ReLU activation\n- 528 parameters" as L3
 
-Guards : Label oracle: target_lod_bias
-Guards : Normalization: StandardScaler
-Guards : Export: ONNX format
-Guards : Scaler JSON with mean/scale
+component "**Output Head**\n- Shape: 16 → 1\n- Sigmoid activation\n- Range: [0.25, 2.0]\n- 17 parameters\n- **TOTAL PARAMS: 3,905**" as Output
 
-Input --> Layer1
-Layer1 --> Layer2
-Layer2 --> Layer3
-Layer3 --> Output
-Output --> Guards
+component "**Guards & Export**\n- Label oracle: target_lod_bias\n- Normalization: StandardScaler\n- Export: ONNX format\n- Scaler JSON (Mean/Scale)" as Guards
+
+' --- 2. HORIZONTAL LAYOUT ---
+
+Input -r-> L1
+L1 -r-> L2
+L2 -r-> L3
+L3 -r-> Output
+Output -r-> Guards
 
 @enduml

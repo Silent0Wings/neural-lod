@@ -1,94 +1,62 @@
 @startuml Stage_4_InferenceFlowDetailed
 
-title Stage 4: RL Policy Inference Pipeline
+title Stage 4: RL Policy Inference Pipeline (Snake Layout)
 
-object GameState
-object Extraction
-object Normalized
-object MLP
-object RawAction
-object DeadZone
-object Smoothed
-object DwellTimer
-object Clamped
-object Applied
-object Logged
+skinparam componentStyle rectangle
+skinparam defaultTextAlignment left
+skinparam component {
+  BackgroundColor #FAFAFA
+  BorderColor #333
+}
 
-GameState : 13 raw features
-GameState : cpu frame time
-GameState : gpu frame time
-GameState : fps
-GameState : visible renderer count
-GameState : triangle count
-GameState : draw call count
-GameState : camera speed
+' --- 1. DEFINITIONS (ALL FIELDS RESTORED) ---
 
-Extraction : RLFeatureExtractor
-Extraction : Extract 13 features
-Extraction : Load scaler JSON
-Extraction : Normalize: (f-m)/s
-Extraction : Fixed feature order
+component "**GameState**\n13 raw features\ncpu/gpu frame time\nfps, visible renderer count\ntriangle count, draw call count\ncamera speed" as GameState
 
-Normalized : 13-dim vector
-Normalized : Mean = 0
-Normalized : Std dev = 1
-Normalized : Ready for MLP
+component "**Extraction**\nRLFeatureExtractor\nExtract 13 features\nLoad scaler JSON\nNormalize: (f-m)/s\nFixed feature order" as Extraction
 
-MLP : L1: 13 -> 256 ReLU
-MLP : L2: 256 -> 64 ReLU
-MLP : L3: 64 -> 32 ReLU
-MLP : Out: 32 -> 1 Linear
-MLP : ~21,857 parameters
-MLP : Inference: 0.5-1ms
+component "**Normalized**\n13-dim vector\nMean = 0, Std = 1\nReady for MLP" as Normalized
 
-RawAction : Unbounded output
-RawAction : mu = tanh(net)*0.2
-RawAction : Range: [-0.2, +0.2]
-RawAction : Gaussian policy
+component "**MLP**\nL1: 13→256 ReLU\nL2: 256→64 ReLU\nL3: 64→32 ReLU\nOut: 32→1 Linear\n~21,857 params\nInference: 0.5-1ms" as MLP
 
-DeadZone : if abs(mu) < 0.02
-DeadZone : then mu = 0
-DeadZone : Suppress GPU noise
-DeadZone : Filter 1 of 4
+component "**RawAction**\nUnbounded output\nmu = tanh(net)*0.2\nRange: [-0.2, +0.2]\nGaussian policy" as RawAction
 
-Smoothed : mu = 0.2*raw
-Smoothed : + 0.8*previous
-Smoothed : EMA alpha = 0.2
-Smoothed : Dampen oscillations
+component "**DeadZone**\nif abs(mu) < 0.02 → 0\nSuppress GPU noise\nFilter 1 of 4" as DeadZone
 
-DwellTimer : if frames < 5
-DwellTimer : then action = 0
-DwellTimer : Enforce 0.5s minimum
-DwellTimer : Prevent rapid switch
+component "**Smoothed**\nmu = 0.2*raw + 0.8*prev\nEMA alpha = 0.2\nDampen oscillations" as Smoothed
 
-Clamped : action in [-0.2, +0.2]
-Clamped : bias in [0.30, 2.00]
-Clamped : Runtime guardrails
-Clamped : Recovery assist
+component "**DwellTimer**\nif frames < 5 → action = 0\nEnforce 0.5s minimum\nPrevent rapid switch" as DwellTimer
 
-Applied : Update QualitySettings
-Applied : Apply lodBias delta
-Applied : Current frame active
-Applied : Next frame: measure
+component "**Clamped**\naction in [-0.2, +0.2]\nbias in [0.30, 2.00]\nRuntime guardrails\nRecovery assist" as Clamped
 
-Logged : Log CSV row
-Logged : action_raw, action_final
-Logged : cpu_ms, gpu_ms
-Logged : reward components
+component "**Applied**\nUpdate QualitySettings\nApply lodBias delta\nCurrent frame active\nNext frame: measure" as Applied
 
-GameState --> Extraction
-Extraction --> Normalized
-Normalized --> MLP
-MLP --> RawAction
-RawAction --> DeadZone
-DeadZone --> Smoothed
-Smoothed --> DwellTimer
-DwellTimer --> Clamped
-Clamped --> Applied
-Applied --> Logged
+component "**Logged**\nLog CSV row\naction_raw, action_final\ncpu_ms, gpu_ms\nreward components" as Logged
+
+' --- 2. SNAKE LAYOUT LOGIC ---
+
+' Row 1: Right
+GameState -r-> Extraction
+Extraction -r-> Normalized
+Normalized -r-> MLP
+
+' Turn 1: Down
+MLP -d-> RawAction
+
+' Row 2: Left
+RawAction -l-> DeadZone
+DeadZone -l-> Smoothed
+Smoothed -l-> DwellTimer
+
+' Turn 2: Down
+DwellTimer -d-> Clamped
+
+' Row 3: Right
+Clamped -r-> Applied
+Applied -r-> Logged
 
 note bottom of Logged
-  TRAINING FEEDBACK:
+  **TRAINING FEEDBACK:**
   Collected rollouts flow to training
   Compute discounted returns
   REINFORCE: maximize E[log(pi)*G]

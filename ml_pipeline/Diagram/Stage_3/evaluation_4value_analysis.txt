@@ -1,76 +1,61 @@
 @startuml Stage_3_Evaluation_4ValueAnalysis
 
-title Stage 3: Evaluation - 4-Value Threshold Analysis (Activity)
+title Stage 3: Evaluation - 4-Value Threshold Analysis
 
+skinparam defaultTextAlignment center
+skinparam conditionStyle diamond
+skinparam monochrome false
+
+|Data Loading & MAE|
 start
-
 :Load eval_neural_stage3_*.csv;
 :Load training_data_labeled.csv;
 
 :For each LOD level (0,1,2,3):
-  Compute MAE on that level;
+Compute MAE on that level;
 
-:Comparison table - T0, T1, T2, T3;
+:Comparison table: T0, T1, T2, T3;
 
-:Check constraint - T0 > T1 > T2 > T3;
+|Constraint & Stability|
+:Check constraint: T0 > T1 > T2 > T3;
 :Count violations per frame;
 
 if (violation_rate < 0.1%?) then (yes)
-  :✓ ROBUST (tight enforcement)
+  :#LightGreen:✓ ROBUST (Tight Enforcement);
 else (no)
-  :⚠ LOOSE (post-processing too permissive)
+  :#LightCoral:⚠ LOOSE (Permissive Post-processing);
 endif
 
-:Min-gap analysis;
-:Verify all >= 0.01 minimum gap;
-
+:Min-gap analysis (>= 0.01);
 :Compute flip rate per level;
-:Ideally < 0.5 Hz per level;
-
-:Frame-to-frame delta distribution;
-
-:Aggregate flip rate;
 
 if (flip_rate > 1.0 Hz?) then (yes)
-  :⚠ JITTERY (visible popping)
+  :#LightCoral:⚠ JITTERY (Visible Popping);
 else (no)
-  :✓ STABLE (acceptable)
+  :#LightGreen:✓ STABLE (Acceptable);
 endif
 
-:Measure inference cost;
-:Time to run MLP forward pass;
-
+|Performance & ROI|
+:Measure inference cost (MLP forward);
 :Measure GPU savings from thresholds;
 
-:Net efficiency;
-:Net gain = GPU_Savings - inference_cost;
+:Net gain = GPU_Savings - Inf_Cost;
 
 if (net_gain > 0.5 ms?) then (yes)
-  :✓ PROFITABLE (worth the neural model)
+  :#LightGreen:✓ PROFITABLE;
 else (no)
-  :~ BREAK-EVEN or LOSS
+  :#Yellow:~ BREAK-EVEN / LOSS;
 endif
 
 :Generate 9-panel comparison plots;
-:Output eval_baker_stage3_comparison.ipynb;
-
-:Print Detailed Report;
-
 note right
-  STAGE 3 EVAL (Baker 4-Value)
-
-  PER-LOD MAE:
-  T0: 0.08, T1: 0.10, T2: 0.12, T3: 0.14
-
-  STABILITY: Flip rate 0.35 Hz
-
-  PERFORMANCE: CPU mean 13.5 ms
-  GPU savings: +1.2 ms
-  Net gain: +1.12 ms
-
-  VERDICT: PRODUCTION-READY
+  **STAGE 3 EVAL VERDICT:**
+  - T0-T3 MAE: [0.08, 0.14]
+  - Flip Rate: 0.35 Hz
+  - Net Gain: +1.12 ms
 end note
 
+:Print Detailed Report;
 stop
 
 @enduml

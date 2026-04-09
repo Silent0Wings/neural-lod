@@ -1,9 +1,12 @@
-@startuml Stage_2_Evaluation_Comparison
+@startuml Stage_2_Evaluation_Comparison_Wide
 
-title Stage 2: Evaluation - Model Comparison (Activity)
+title Stage 2: Evaluation - Model Comparison (Activity - Lossless Wide)
 
+skinparam conditionStyle diamond
+skinparam defaultTextAlignment left
+
+|#AliceBlue|Data & Latency|
 start
-
 :Load eval_neural_*.csv;
 note right
   Predictions from trained model
@@ -20,6 +23,7 @@ end note
 :Compute CPU/GPU latency;
 :Mean, Median, P95, P99, Max;
 
+|#GhostWhite|Budget & Accuracy|
 :Over-budget analysis;
 :Count frames exceeding TARGET_FRAME_MS;
 :Percentage = over / total;
@@ -34,11 +38,12 @@ end note
 :Correlation coefficient;
 
 if (MAE < 0.15?) then (yes)
-  :✓ GOOD (within tolerance)
+  :✅ GOOD (within tolerance);
 else (no)
-  :⚠ POOR (needs retraining)
+  :❌ POOR (needs retraining);
 endif
 
+|#AliceBlue|Spatial & Robustness|
 :Monotonicity check;
 :Verify T0 > T1 > T2 > T3;
 :Flag violations;
@@ -55,6 +60,7 @@ endif
 :Frame-to-frame threshold delta;
 :High delta indicates visual popping;
 
+|#GhostWhite|Synthesis & Output|
 :Velocity response;
 :Correlate bias changes with camera speed;
 :Should be positive;
@@ -64,9 +70,8 @@ endif
 :Should be < 5% of frames;
 
 :Generate comparison plots;
-
 note right
-  9-panel comparison figure:
+  **9-panel comparison figure:**
   - CPU/GPU latency curves
   - Threshold time-series
   - Distribution histograms
@@ -79,12 +84,10 @@ note right
 end note
 
 :Output eval_baker_comparison.ipynb;
-
 :Print Summary Report;
 
 note right
-  EVAL RESULTS (Baker)
-
+  **EVAL RESULTS (Baker)**
   CPU mean: 14.2 ms
   CPU P95: 16.8 ms
   Over-budget: 2.1%
@@ -92,8 +95,7 @@ note right
   Threshold MAE: 0.08
   Monotonicity: 99.7%
   Net gain: +0.8 ms
-
-  VERDICT: EXCELLENT
+  **VERDICT: EXCELLENT**
 end note
 
 stop
