@@ -1,4 +1,4 @@
-@startuml Stage_1_ModelArchitecture_Wide
+@startuml Stage_1_ModelArchitecture
 
 title Stage 1: Neural LOD Controller Architecture (Horizontal Layout)
 

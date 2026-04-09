@@ -1,4 +1,4 @@
-@startuml Stage_1_DataCollection_Orchestration_Wide
+@startuml Stage_1_DataCollection_Orchestration
 
 title Stage 1: Data Collection Orchestration (Activity - Lossless Wide)
 

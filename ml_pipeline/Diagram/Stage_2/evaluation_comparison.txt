@@ -1,4 +1,4 @@
-@startuml Stage_2_Evaluation_Comparison_Wide
+@startuml Stage_2_Evaluation_Comparison
 
 title Stage 2: Evaluation - Model Comparison (Activity - Lossless Wide)
 

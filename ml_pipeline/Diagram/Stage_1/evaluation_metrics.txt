@@ -1,4 +1,4 @@
-@startuml Stage_1_Evaluation_Metrics_Wide
+@startuml Stage_1_Evaluation_Metrics
 
 title Stage 1: Evaluation & Metrics Analysis (Activity - Lossless Wide)
 
