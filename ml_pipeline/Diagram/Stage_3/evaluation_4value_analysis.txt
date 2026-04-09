@@ -1,0 +1,76 @@
+@startuml Stage_3_Evaluation_4ValueAnalysis
+
+title Stage 3: Evaluation - 4-Value Threshold Analysis (Activity)
+
+start
+
+:Load eval_neural_stage3_*.csv;
+:Load training_data_labeled.csv;
+
+:For each LOD level (0,1,2,3):
+  Compute MAE on that level;
+
+:Comparison table - T0, T1, T2, T3;
+
+:Check constraint - T0 > T1 > T2 > T3;
+:Count violations per frame;
+
+if (violation_rate < 0.1%?) then (yes)
+  :✓ ROBUST (tight enforcement)
+else (no)
+  :⚠ LOOSE (post-processing too permissive)
+endif
+
+:Min-gap analysis;
+:Verify all >= 0.01 minimum gap;
+
+:Compute flip rate per level;
+:Ideally < 0.5 Hz per level;
+
+:Frame-to-frame delta distribution;
+
+:Aggregate flip rate;
+
+if (flip_rate > 1.0 Hz?) then (yes)
+  :⚠ JITTERY (visible popping)
+else (no)
+  :✓ STABLE (acceptable)
+endif
+
+:Measure inference cost;
+:Time to run MLP forward pass;
+
+:Measure GPU savings from thresholds;
+
+:Net efficiency;
+:Net gain = GPU_Savings - inference_cost;
+
+if (net_gain > 0.5 ms?) then (yes)
+  :✓ PROFITABLE (worth the neural model)
+else (no)
+  :~ BREAK-EVEN or LOSS
+endif
+
+:Generate 9-panel comparison plots;
+:Output eval_baker_stage3_comparison.ipynb;
+
+:Print Detailed Report;
+
+note right
+  STAGE 3 EVAL (Baker 4-Value)
+
+  PER-LOD MAE:
+  T0: 0.08, T1: 0.10, T2: 0.12, T3: 0.14
+
+  STABILITY: Flip rate 0.35 Hz
+
+  PERFORMANCE: CPU mean 13.5 ms
+  GPU savings: +1.2 ms
+  Net gain: +1.12 ms
+
+  VERDICT: PRODUCTION-READY
+end note
+
+stop
+
+@enduml

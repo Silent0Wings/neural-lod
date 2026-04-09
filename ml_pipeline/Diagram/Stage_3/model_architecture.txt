@@ -1,0 +1,59 @@
+@startuml Stage_3_ModelArchitecture
+
+title Stage 3: 4-Value Threshold Vector Predictor
+
+object Input
+object Layer1
+object Layer2
+object Layer3
+object Output
+object Monotonic
+object Guards
+
+Input : 13 normalized features
+Input : position (x, y, z)
+Input : rotation (pitch, yaw, roll)
+Input : sin_pitch, cos_pitch
+Input : sin_yaw, cos_yaw
+Input : sin_roll, cos_roll
+Input : triangle count
+Input : visible renderer count
+Input : screen coverage
+Input : draw call count
+
+Layer1 : Shape: 13 to 256
+Layer1 : GELU activation
+Layer1 : Dropout
+Layer1 : 3,328 parameters
+
+Layer2 : Shape: 256 to 128
+Layer2 : GELU activation
+Layer2 : Dropout
+Layer2 : 32,896 parameters
+
+Layer3 : Shape: 128 to 64
+Layer3 : GELU activation
+Layer3 : (no dropout)
+Layer3 : 8,256 parameters
+
+Output : Shape: 64 to 4
+Output : Sigmoid activation
+Output : 260 parameters
+Output : Total: 44,740 params
+Output : 4 thresholds (T0, T1, T2, T3)
+
+Vectors : T0: LOD0 to LOD1 distance
+Vectors : T1: LOD1 to LOD2 distance
+Vectors : T2: LOD2 to LOD3 distance
+Vectors : T3: LOD3 to culling distance
+Vectors : Label: relabeled from optimal_lod
+Vectors : HuberLoss optimization
+
+Input --> Layer1
+Layer1 --> Layer2
+Layer2 --> Layer3
+Layer3 --> Output
+Output --> Monotonic
+Monotonic --> Guards
+
+@enduml

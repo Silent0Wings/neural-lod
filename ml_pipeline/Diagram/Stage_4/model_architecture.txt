@@ -1,0 +1,73 @@
+@startuml Stage_4_ModelArchitecture
+
+title Stage 4: REINFORCE RL Policy Network
+
+object State
+object Layer1
+object Layer2
+object Layer3
+object Action
+object Deadzone
+object EMA
+object Dwell
+object Clamp
+
+State : 13 normalized features
+State : cpu frame time
+State : gpu frame time
+State : fps
+State : visible renderer count
+State : triangle count
+State : draw call count
+State : camera speed
+State : camera rotation speed
+State : avg screen coverage
+State : previous bias
+State : recent lod switch count
+State : floor dwell score
+State : ceiling dwell score
+
+Layer1 : Shape: 13 to 256
+Layer1 : ReLU activation
+Layer1 : Dropout
+Layer1 : 3,328 parameters
+
+Layer2 : Shape: 256 to 64
+Layer2 : ReLU activation
+Layer2 : Dropout
+Layer2 : 16,448 parameters
+
+Layer3 : Shape: 64 to 32
+Layer3 : ReLU activation
+Layer3 : Dropout
+Layer3 : 2,048 parameters
+
+Action : Shape: 32 to 1
+Action : Linear activation
+Action : log_sigma param
+Action : Total: 21,857 params
+Action : Unbounded raw action
+
+Policy : REINFORCE learning
+Policy : target_gpu_ms = 5.0
+Policy : discounted_return (gamma=0.99)
+Policy : batch_size = 256
+Policy : optuna tuning: 15 trials
+
+State --> Layer1
+Layer1 --> Layer2
+Layer2 --> Layer3
+Layer3 --> Action
+Action --> Deadzone
+Deadzone --> EMA
+EMA --> Dwell
+Dwell --> Clamp
+
+note bottom of State
+  TWITCHY GENIUS FIX:
+  Raw policy output: 3Hz oscillation
+  After filters: 0.3-0.5Hz stable
+  Net result: +1.2 ms GPU savings
+end note
+
+@enduml

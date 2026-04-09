@@ -1,0 +1,55 @@
+@startuml Stage_2_ModelArchitecture
+
+title Stage 2: Per-Object Threshold Predictor Architecture
+
+object Input
+object Layer1
+object Layer2
+object Layer3
+object Output
+object Guards
+
+Input : 13 normalized features
+Input : position (x, y, z)
+Input : rotation (pitch, yaw, roll)
+Input : pitch, cos_pitch
+Input : sin_yaw, cos_yaw
+Input : sin_roll, cos_roll
+Input : triangle count
+Input : visible renderer count
+Input : screen coverage
+Input : draw call count
+
+Layer1 : Shape: 13 to 512
+Layer1 : ReLU activation
+Layer1 : BatchNorm1d + Dropout
+Layer1 : 6,656 parameters
+
+Layer2 : Shape: 512 to 256
+Layer2 : ReLU activation
+Layer2 : BatchNorm1d + Dropout
+Layer2 : 131,328 parameters
+
+Layer3 : Shape: 256 to 128
+Layer3 : ReLU activation
+Layer3 : BatchNorm1d + Dropout
+Layer3 : 32,896 parameters
+
+Output : Shape: 128 to 1
+Output : Sigmoid activation
+Output : 129 parameters
+Output : Range: [0.01, 10.0]
+Output : Total params: 171,009
+
+Guards : Label: optimal_thresholds
+Guards : HuberLoss (delta=0.15)
+Guards : Dropout=0.2
+Guards : Early stopping (patience=30)
+
+Input --> Layer1
+Layer1 --> Layer2
+Layer2 --> Layer3
+Layer3 --> Output
+Output --> Guards
+
+@enduml

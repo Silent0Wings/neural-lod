@@ -1,0 +1,82 @@
+@startuml Stage_3_Organisation_4ValueStructures
+
+title Stage 3: Data Organisation - 4-Value Threshold Vectors (Component)
+
+package "Stage 3 Data Pipeline" {
+
+  component [SampleRecord (from Stage 2)] as sr
+  note right of sr
+    point_id, rotation_angles,
+    lod_level, cpu_ms, gpu_ms,
+    triangle_count, draw_calls
+  end note
+
+  component [Relabeler] as relabel
+  note right of relabel
+    Recomputes optimal 4-value
+    threshold vectors from
+    Stage 2 sample records.
+    Maps each (location, rotation)
+    → [T0_opt, T1_opt, T2_opt, T3_opt]
+  end note
+
+  component [LabelledSample4] as ls4
+  note right of ls4
+    sample_record,
+    optimal_thresholds[4],
+    quality_score,
+    monotonicity_flag
+  end note
+
+  component [Threshold Vector] as tvec
+  note right of tvec
+    4-element float array:
+    [T0, T1, T2, T3]
+
+    Constraints:
+    - T0 > T1 > T2 > T3
+    - Each > 0.01
+    - Max gap: 10.0
+    - Min gap: 0.01
+  end note
+
+  component [Training Dataset 4-Output] as td4
+  note right of td4
+    CSV format:
+    point_id, rotation_xyz,
+    feature1...feature20,
+    T0_opt, T1_opt, T2_opt, T3_opt,
+    quality_score
+
+    ~1.7M rows (same as Stage 2)
+    But with 4 labels instead of 1
+  end note
+
+  sr --> relabel: Input sample records
+  relabel --> ls4: Compute optimal 4-values
+  ls4 --> tvec: Extract threshold vector
+  tvec --> td4: All vectors to training CSV
+}
+
+package "Model Architecture" {
+  component [PolicyMLP4] as mlp4
+  note right of mlp4
+    Input: 20 normalized features
+    Hidden: 64 → 32 → 16 neurons
+    Output: 4 neurons (one per LOD level)
+    Loss: Huber (robust to outliers)
+    Activation: ReLU (hidden), Linear (output)
+  end note
+
+  component [OutputNormalization] as outnorm
+  note right of outnorm
+    Clamp each output to [0.01, 10.0]
+    Post-process: Enforce T0 > T1 > T2 > T3
+    Add min gap: 0.01 between levels
+  end note
+
+  mlp4 --> outnorm: Raw 4 outputs
+  outnorm --> tvec: Valid threshold vector
+}
+
+@enduml

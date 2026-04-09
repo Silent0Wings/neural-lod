@@ -1,0 +1,115 @@
+@startuml Stage_4_Organisation_RLStructures
+
+title Stage 4: Data Organisation - RL Training Structures (Class)
+
+class RolloutStep {
+  int episode_id
+  int step_number
+  float[] state_features (20D)
+  float action_delta ([-0.20, +0.20])
+  float reward_gpu
+  float reward_flip
+  float reward_stability
+  float total_reward
+  float cumulative_return
+  bool action_filtered (was filtered?)
+}
+
+class RolloutEpisode {
+  int episode_id
+  List<RolloutStep> steps
+  float total_reward
+  float episode_length (steps)
+  float mean_reward
+  float flip_rate_hz
+  float max_gpu_time_ms
+  float p95_latency_ms
+  DateTime start_time
+  DateTime end_time
+}
+
+class RewardFunction {
+  float alpha_gpu
+  float beta_flip
+  float gamma_stability
+  ComputeReward(gpu_delta, flip_count, stability_score)
+}
+
+class PolicyMLP_RL {
+  int input_dim = 20
+  int hidden1 = 64
+  int hidden2 = 32
+  int hidden3 = 16
+  int output_dim = 1
+  float learning_rate
+  float gamma_discount
+  torch.nn.Module architecture
+}
+
+class StabilityFilters {
+  float dead_zone
+  int dwell_frames
+  float dwell_seconds
+  float ema_alpha
+  ApplyDeadZone(delta)
+  ApplyDwellTimer(delta, frames_since_change)
+  ApplySmoothingEMA(delta, prev_delta)
+  ApplyBiasClamping(new_bias)
+}
+
+class ScalerJSON {
+  float[] feature_means
+  float[] feature_stds
+  float dead_zone
+  int dwell_frames
+  float dwell_seconds
+  float ema_alpha
+  NormalizeFeatures(raw_features)
+}
+
+class RLTrainingBatch {
+  List<RolloutEpisode> episodes
+  torch.Tensor states
+  torch.Tensor actions
+  torch.Tensor returns
+  torch.Tensor advantages
+  float total_steps
+  float mean_episode_return
+}
+
+RolloutStep "0..*" -- "1" RolloutEpisode
+RolloutEpisode "0..*" -- "1" RLTrainingBatch
+RewardFunction -- RolloutStep : computes
+PolicyMLP_RL -- "1" RolloutStep : generates action
+StabilityFilters -- "1" RolloutStep : applies to
+ScalerJSON -- "1" RolloutStep : normalizes state
+PolicyMLP_RL -- RLTrainingBatch : trained on
+
+note bottom
+  **Stage 4 Data Flow:**
+
+  1. Collection (Unity):
+     RolloutEpisode → RolloutStep list
+     → CSV export
+
+  2. Processing (Python):
+     CSV → DataFrame with features
+     → Compute rewards & returns
+     → Normalize advantages
+
+  3. Training (Notebook §6-7):
+     RLTrainingBatch → PyTorch tensors
+     → REINFORCE gradient descent
+     → Update PolicyMLP_RL weights
+
+  4. Validation (Notebook §8):
+     Evaluate on held-out episodes
+     → Metrics: flip_rate, net_gain, robustness
+
+  5. Export (Notebook §9-10):
+     PolicyMLP_RL → ONNX format
+     → Quality gates check
+     → Deploy to Unity via scaler JSON
+end note
+
+@enduml

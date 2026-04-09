@@ -1,0 +1,85 @@
+@startuml Stage_1_DataCollection_Orchestration
+
+title Stage 1: Data Collection Orchestration (Activity)
+
+start
+
+:DataCollectionOrchestrator
+Awake();
+note right
+  Initialize references:
+  - CameraPathAnimator
+  - MetricLogger
+  - LODBiasController
+  - RunTerminator
+end note
+
+:BuildRunList()
+Generate all (bias, speed, rotation) tuples;
+note right
+  biasValues = [0.1, 0.5, 1.0, 2.0]
+  moveSpeeds = [3.0, 5.0, 8.0]
+  rotateSpeeds = [3.0, 5.0]
+  Creates cartesian product
+end note
+
+:_totalRuns = biases × speeds × rotations;
+
+repeat
+  :Get next run parameters
+  (_currentBias, _currentSpeed, _currentRot);
+
+  :Set LODBiasController
+  → lodController.SetBias(_currentBias);
+
+  :Start CameraPathAnimator
+  → cpa.StartPath(_speed, _rot);
+
+  :Wait Warmup Period
+  (_warmupDelay = 1.5s);
+  note right
+    Allows GPU/CPU to stabilize
+    before metric collection begins
+  end note
+
+  :MetricLogger.StartLogging()
+  → Collect frame metrics
+  (CPU, GPU, triangles, draw calls);
+
+  :Monitor progression
+  progression = currentRun / totalRuns;
+
+  repeat
+    :Frame Loop:
+    MetricLogger.Update()
+    - Capture profiler data
+    - Log row to buffer
+    - Check row cap (5000 rows)
+  until row cap reached?
+
+  :MetricLogger.StopLogging()
+  → Flush remaining rows to CSV;
+
+  :RunTerminator.OnRunComplete()
+  → Reset scene state;
+
+  :Write output CSV
+  → ml_pipeline/data/
+  training_data_bias_X_spd_Y_rot_Z.csv;
+
+repeat while (more runs exist?)
+
+:All runs completed;
+:_allDone = true;
+
+note right
+  **Output Structure:**
+  Columns: frame_idx, cpu_frame_time_ms, gpu_frame_time_ms,
+  triangles, draw_calls, move_speed, rotate_speed,
+  lod_bias_current, camera_position_xyz, camera_rotation_xyz,
+  screen_coverage, angular_velocity, frame_headroom_ms
+end note
+
+stop
+
+@enduml

@@ -1,0 +1,101 @@
+@startuml Stage_2_Evaluation_Comparison
+
+title Stage 2: Evaluation - Model Comparison (Activity)
+
+start
+
+:Load eval_neural_*.csv;
+note right
+  Predictions from trained model
+  on held-out test set
+end note
+
+:Load training_data_labeled.csv;
+note right
+  Baseline oracle labels
+end note
+
+:Align both datasets by grid point & rotation;
+
+:Compute CPU/GPU latency;
+:Mean, Median, P95, P99, Max;
+
+:Over-budget analysis;
+:Count frames exceeding TARGET_FRAME_MS;
+:Percentage = over / total;
+
+:Flip rate (jitter);
+:Count threshold transitions per second;
+:Target: < 1.0 Hz;
+
+:Predicted vs Optimal comparison;
+:MAE: Mean Absolute Error on thresholds;
+:RMSE: Root Mean Square Error;
+:Correlation coefficient;
+
+if (MAE < 0.15?) then (yes)
+  :✓ GOOD (within tolerance)
+else (no)
+  :⚠ POOR (needs retraining)
+endif
+
+:Monotonicity check;
+:Verify T0 > T1 > T2 > T3;
+:Flag violations;
+
+:Spatial correlation heatmaps;
+:Map (x, z) grid to prediction error;
+:Identify corner/edge bias;
+
+:Identify high-error regions;
+:Corners: Often higher error;
+:Dense geometry: Low error;
+
+:Flicker detection;
+:Frame-to-frame threshold delta;
+:High delta indicates visual popping;
+
+:Velocity response;
+:Correlate bias changes with camera speed;
+:Should be positive;
+
+:Hysteresis effectiveness;
+:Count of spurious switches;
+:Should be < 5% of frames;
+
+:Generate comparison plots;
+
+note right
+  9-panel comparison figure:
+  - CPU/GPU latency curves
+  - Threshold time-series
+  - Distribution histograms
+  - Spatial error heatmaps
+  - Flip rate distribution
+  - MAE by scene region
+  - Velocity correlation scatter
+  - Monotonicity violation flags
+  - Before/after efficiency chart
+end note
+
+:Output eval_baker_comparison.ipynb;
+
+:Print Summary Report;
+
+note right
+  EVAL RESULTS (Baker)
+
+  CPU mean: 14.2 ms
+  CPU P95: 16.8 ms
+  Over-budget: 2.1%
+  Flip rate: 0.3 Hz
+  Threshold MAE: 0.08
+  Monotonicity: 99.7%
+  Net gain: +0.8 ms
+
+  VERDICT: EXCELLENT
+end note
+
+stop
+
+@enduml

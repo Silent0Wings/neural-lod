@@ -1,0 +1,58 @@
+@startuml Stage_1_ModelArchitecture
+
+title Stage 1: Neural LOD Controller Architecture
+
+object Input
+object Layer1
+object Layer2
+object Layer3
+object Output
+object Guards
+
+Input : 19 normalized features
+Input : cpu/gpu frame times
+Input : triangle count
+Input : camera velocity
+Input : camera angular velocity
+Input : visible renderer count
+Input : draw call estimate
+Input : frame headroom
+Input : screen coverage
+Input : lod bias current
+Input : fps
+Input : camera position (x, y, z)
+Input : camera rotation (y)
+Input : path progress
+Input : waypoint index
+Input : move speed, rotate speed
+
+Layer1 : Shape: 19 to 64
+Layer1 : ReLU activation
+Layer1 : 1,280 parameters
+
+Layer2 : Shape: 64 to 32
+Layer2 : ReLU activation
+Layer2 : 2,080 parameters
+
+Layer3 : Shape: 32 to 16
+Layer3 : ReLU activation
+Layer3 : 528 parameters
+
+Output : Shape: 16 to 1
+Output : Sigmoid activation
+Output : 17 parameters
+Output : Range: [0, 1] to [0.25, 2.0]
+Output : Total params: 3,905
+
+Guards : Label oracle: target_lod_bias
+Guards : Normalization: StandardScaler
+Guards : Export: ONNX format
+Guards : Scaler JSON with mean/scale
+
+Input --> Layer1
+Layer1 --> Layer2
+Layer2 --> Layer3
+Layer3 --> Output
+Output --> Guards
+
+@enduml

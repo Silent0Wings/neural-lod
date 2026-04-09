@@ -1,0 +1,100 @@
+@startuml Stage_3_Logging_4ValueTelemetry
+
+title Stage 3: Logging & 4-Value Telemetry Capture (Sequence)
+
+participant "Game Loop" as gl
+participant "InferenceEvaluationLogger4" as iel4
+participant "LODThresholdPredictor4" as ltp4
+participant "ProfilerRecorder" as pr
+participant "Row Buffer" as buf
+participant "CSV Writer" as cw
+
+loop every frame during evaluation
+  gl -> iel4: Update()
+  activate iel4
+
+  iel4 -> ltp4: Get current thresholds
+  note right
+    Query predicted [T0, T1, T2, T3]
+    for current frame
+  end note
+  activate ltp4
+  ltp4 --> iel4: thresholds[4]
+  deactivate ltp4
+
+  iel4 -> pr: Sample profiler data
+  activate pr
+  note right
+    - CPU frame time
+    - GPU frame time
+    - Triangle count
+    - Draw calls
+    - Memory usage (Level 3 detail)
+  end note
+  pr --> iel4: metrics
+  deactivate pr
+
+  iel4 -> iel4: Detect threshold changes:
+  note right
+    For each threshold level:
+    - Did any value change this frame?
+    - Record transition delta
+    - Track flip count
+  end note
+
+  iel4 -> iel4: Build extended CSV row:
+  note right
+    Standard columns:
+    - elapsed_s
+    - cpu_frame_ms
+    - gpu_frame_ms
+    - camera_position_xyz
+    - camera_rotation_xyz
+
+    NEW (Stage 3):
+    - T0_predicted (LOD0→1)
+    - T1_predicted (LOD1→2)
+    - T2_predicted (LOD2→3)
+    - T3_predicted (LOD3→end)
+    - T0_delta (change from prev frame)
+    - T1_delta
+    - T2_delta
+    - T3_delta
+    - any_threshold_switched (bool)
+    - complexity_level (tris/drawcalls)
+  end note
+
+  iel4 -> buf: Append row
+  activate buf
+
+  alt Buffer full (1000 rows)
+    buf -> cw: Flush batch
+    activate cw
+    cw -> cw: Write to CSV
+    deactivate cw
+    buf -> buf: Clear
+  end
+
+  deactivate buf
+  deactivate iel4
+end
+
+note over gl, cw
+  **Output CSV Path:**
+  ml_pipeline/data/Eval/
+  eval_neural_stage3_YYYY-MM-DD_HH-MM-SS.csv
+
+  **Total Columns: 20+**
+  Standard 12 + 4 thresholds + 4 deltas + 2 flags + details
+
+  **Key Addition Over Stage 2:**
+  - Per-LOD-level threshold tracking
+  - Delta analysis for jitter detection
+  - Complexity metrics for validation
+
+  **Sampling Rate:**
+  60 FPS (one row per frame)
+  Typical run: 30-60 minutes = 108K-216K rows
+end note
+
+@enduml

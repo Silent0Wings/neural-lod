@@ -1,0 +1,79 @@
+@startuml Stage_4_DataCollection_Rollout
+
+title Stage 4: Data Collection - RL Rollout Episodes (Activity)
+
+start
+
+:Initialize RLPolicyController;
+:Rule-based fallback (no ONNX yet);
+
+:Stage 1: Null RL Collection;
+note right
+  Collecting labeled data
+  using hand-crafted rule
+end note
+
+repeat
+  :Episode k: Start camera path;
+
+  repeat
+    :Step t: RLPolicyController.Update()
+      1. Read state (20 features)
+      2. Apply rule-based policy
+      3. Execute bias change
+      4. Render frame
+      5. Measure reward;
+  repeat while (episode terminates?)
+
+  :End of episode;
+  :Reset scene for next episode;
+
+repeat while (collecting enough data?)
+
+:Stage 2: Mixed Data Training;
+note right
+  RL model + rule-based fallback
+end note
+
+repeat
+  :Episode k (mixed phase);
+  :Start camera path;
+
+  repeat
+    :Step t: RLPolicyController.Update()
+      1. Load RL model (partially trained)
+      2. Get model action
+      3. Apply stability filters
+      4. Execute combined action
+      5. Measure reward;
+
+    note right
+      Reward = -alpha * gpu_delta
+               -beta * flip_rate
+               + gamma * stability
+    end note
+  repeat while (episode terminates?)
+
+  :Collect episode statistics;
+  :Mean reward, flip rate, max GPU time;
+
+repeat while (training phase complete?)
+
+:End collection;
+:Aggregate all rollouts into unified CSV;
+
+:Output training_data_rl_mixed.csv;
+
+note right
+  Columns: episode_id, step_number,
+  state_features[20], action_delta,
+  gpu_frame_time_ms, cpu_frame_time_ms,
+  reward_gpu, reward_flip, reward_stability,
+  total_reward, cumulative_return
+
+  ~50-100K rows total
+end note
+
+stop
+
+@enduml

@@ -1,0 +1,52 @@
+@startuml Stage_1_Training_Inference_Flow
+
+title Stage 1: Neural LOD Training Inference Flow (Sequence)
+
+actor "Runtime" as rt
+participant "NeuralLODController" as nlc
+participant "LODFeatureExtractor" as lfe
+participant "Worker/Model" as mdl
+participant "QualitySettings" as qs
+
+rt -> nlc: Update()
+activate nlc
+
+alt Check Inference Interval (every N frames)
+    nlc -> lfe: GetNormalizedFeatures()
+    activate lfe
+    lfe -> lfe: Extract 20 features\n(position, velocity, rotation,\ncpu/gpu time, screen coverage)
+    lfe --> nlc: float[] features
+    deactivate lfe
+
+    nlc -> mdl: Worker.Execute(features)
+    activate mdl
+    mdl -> mdl: MLP Forward Pass\n3 hidden layers
+    mdl --> nlc: predicted_bias (scalar)
+    deactivate mdl
+
+    nlc -> nlc: Apply Stability Controls:\n1. Hysteresis Check\n2. Dwell Timer Guard\n3. Max Delta Clamp\n4. Bias Range [0.25, 2.0]
+
+    nlc -> qs: QualitySettings.lodBias = applied_bias
+    activate qs
+    qs --> nlc: ✓ Applied
+    deactivate qs
+
+    nlc -> nlc: Track _lastSwitchFrame\nfor dwell enforcement
+end
+
+nlc --> rt: Bias Updated
+deactivate nlc
+
+note right of nlc
+  **Stability Guardrails:**
+  - Hysteresis: Min delta to trigger (Up: 0.05, Down: 0.08)
+  - Dwell: Min 10 frames between changes
+  - Max Delta: 0.25 per step
+  - Bias Range: [0.25, 2.0]
+
+  **Recovery Fallback:**
+  - If extractor not ready: Increment counter
+  - After 5 not-ready frames: Fall back to bias 1.0
+end note
+
+@enduml

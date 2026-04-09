@@ -1,0 +1,99 @@
+@startuml Stage_1_Logging_MetricsCapture
+
+title Stage 1: Logging & Metrics Capture (Sequence)
+
+participant "Game Loop" as gl
+participant "MetricLogger" as ml
+participant "ProfilerRecorder" as pr
+participant "FrameTiming API" as ft
+participant "Row Buffer" as buf
+participant "StreamWriter" as sw
+participant "CSV File" as csv
+
+loop every frame during logging session
+  gl -> ml: Update()
+  activate ml
+
+  ml -> pr: Sample profiler metrics
+  note right of pr
+    - Triangles (vertices processed)
+    - Draw Calls
+    - SetPass Calls
+    - Batches
+  end note
+  pr --> ml: metric data
+
+  ml -> ft: GetFrameTimingInfoAndReset()
+  activate ft
+  ft --> ml: cpu_ms, gpu_ms per frame
+  deactivate ft
+
+  ml -> ml: Rescan renderers\n(every 30 frames)
+  note right of ml
+    Count visible renderers
+    Calculate screen coverage %
+  end note
+
+  ml -> ml: Build CSV row:
+  note right of ml
+    frame_idx,
+    cpu_frame_time_ms,
+    gpu_frame_time_ms,
+    visible_triangles,
+    draw_calls,
+    setpass_calls,
+    move_speed,
+    rotate_speed,
+    lod_bias_current,
+    camera_pos_x/y/z,
+    camera_rot_x/y/z,
+    screen_coverage_pct,
+    angular_velocity,
+    frame_headroom_ms
+  end note
+
+  ml -> buf: Append row to buffer
+  activate buf
+
+  alt Buffer reaches flush interval (120 rows)
+    buf -> sw: Flush all rows
+    activate sw
+    sw -> csv: Write batch
+    activate csv
+    csv --> sw: ✓ flushed
+    deactivate csv
+    deactivate sw
+    buf -> buf: Clear buffer
+  end
+
+  deactivate buf
+
+  ml -> ml: Check stop condition:
+  note right of ml
+    - _validRows >= targetRowCount (5000)?
+    - RunTerminator signal?
+  end note
+
+  deactivate ml
+end
+
+ml -> sw: Close writer
+activate sw
+sw -> csv: Final flush & close
+activate csv
+csv --> sw: ✓ closed
+deactivate csv
+deactivate sw
+
+note bottom
+  **Output CSV Path:**
+  ml_pipeline/data/Train_Runs/
+  training_data_bias_X_spd_Y_rot_Z.csv
+
+  **Logging State:**
+  - loggingComplete = true when row cap hit
+  - _frameCount tracks total frames
+  - _validRows tracks CSV rows written
+end note
+
+@enduml

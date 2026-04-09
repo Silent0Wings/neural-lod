@@ -1,0 +1,139 @@
+@startuml Stage_4_Logging_RolloutMetrics
+
+title Stage 4: Logging & Rollout Metrics (Sequence)
+
+participant "Game Loop" as gl
+participant "RLPolicyController" as rpc
+participant "RLRolloutLogger" as rrl
+participant "RewardCompute" as rc
+participant "Frame Metrics" as fm
+participant "CSV Buffer" as buf
+participant "CSV Writer" as cw
+
+loop for each episode
+  loop for each step in episode
+    gl -> rpc: Update()
+    activate rpc
+
+    rpc -> rpc: Execute action (with filters)
+
+    rpc -> fm: Capture frame metrics
+    activate fm
+    note right of fm
+      - CPU frame time
+      - GPU frame time
+      - Triangles, draw calls
+      - Current bias
+      - Screen coverage
+    end note
+    fm --> rpc: metrics
+    deactivate fm
+
+    rpc -> rc: ComputeReward(metrics)
+    activate rc
+    note right of rc
+      Reward components:
+      1. GPU savings component
+         reward_gpu = -α * gpu_delta_ms
+
+      2. Flip rate penalty
+         reward_flip = -β * is_switch
+
+      3. Stability bonus
+         reward_stability = γ * (1 - jitter_score)
+
+      total_reward =
+        reward_gpu + reward_flip + reward_stability
+    end note
+    rc --> rpc: total_reward
+    deactivate rc
+
+    rpc -> rrl: LogStep(state, action, reward)
+    activate rrl
+
+    rrl -> rrl: Build rollout row:
+    note right of rrl
+      episode_id,
+      step_number,
+      elapsed_seconds,
+      [state features 0-19],
+      action_delta (raw),
+      action_delta (applied after filters),
+      filter_applied_flags (dwell, EMA, deadzone),
+      cpu_frame_ms,
+      gpu_frame_ms,
+      triangles,
+      draw_calls,
+      current_bias,
+      screen_coverage,
+      reward_gpu,
+      reward_flip,
+      reward_stability,
+      total_reward
+    end note
+
+    rrl -> buf: Append row
+    activate buf
+
+    alt Buffer size >= 500 rows
+      buf -> cw: Flush batch
+      activate cw
+      cw -> cw: Write rows to CSV
+      deactivate cw
+      buf -> buf: Clear
+    end
+
+    deactivate buf
+    rrl --> rpc: ✓ logged
+    deactivate rrl
+
+    deactivate rpc
+
+  end
+
+  rrl -> rrl: End of episode:
+  note right of rrl
+    Compute episode summary:
+    - Total steps
+    - Cumulative reward
+    - Mean reward per step
+    - Flip rate (Hz)
+    - Max GPU time
+    - P95 latency
+    - Success flag
+  end note
+
+end
+
+rrl -> cw: Final flush & close
+activate cw
+cw -> cw: Close CSV file
+deactivate cw
+
+note bottom
+  **Output CSV Path:**
+  ml_pipeline/data/Train_Runs/
+  rl_rollouts_YYYY-MM-DD_HH-MM-SS.csv
+
+  **CSV Columns: ~35**
+  - 20 state features
+  - 3 action fields (raw, applied, filtered flags)
+  - 5 frame metrics
+  - 4 reward components
+  - 2 episode/step identifiers
+
+  **Total Rows:**
+  ~50-100K (typical: 30-50 episodes × 1K-3K steps/episode)
+
+  **Key Additions Over Stage 1-3:**
+  - Explicit reward columns (GPU, flip, stability)
+  - Action filtering flags (dwell, EMA, deadzone)
+  - Per-component reward tracking
+
+  **Sampling:**
+  One row per step
+  At 60 FPS: ~16-17 ms per step
+  Episodes: 10-60 seconds each
+end note
+
+@enduml

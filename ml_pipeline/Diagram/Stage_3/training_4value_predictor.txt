@@ -1,0 +1,88 @@
+@startuml Stage_3_Training_4ValuePredictor
+
+title Stage 3: 4-Value Threshold Vector Predictor (Sequence)
+
+participant "Scene" as sc
+participant "LODThresholdPredictor4" as ltp4
+participant "RLFeatureExtractor" as rfe
+participant "Worker/Model" as mdl4
+participant "RuntimeLODApplicator4" as rla4
+participant "LODGroup" as lg
+
+note over sc
+  **Stage 3 Extension:**
+  - Predicts 4 independent threshold values
+  - One per LOD transition: LOD0→1, LOD1→2, LOD2→3, LOD3→end
+  - Allows fine-grained per-level control
+  - Model: MLP with 4 outputs instead of 1
+end note
+
+sc -> ltp4: Update() every inference_interval frames
+activate ltp4
+
+ltp4 -> rfe: GetNormalizedFeatures()
+note right
+  Extract 20 features
+  (same as Stage 1-2)
+end note
+activate rfe
+rfe --> ltp4: features[20]
+deactivate rfe
+
+ltp4 -> mdl4: Worker.Execute(features)
+activate mdl4
+mdl4 -> mdl4: MLP forward pass
+note right
+  3 hidden layers (64→32→16)
+  Output layer: 4 neurons
+  Each output: independent threshold
+  Range: [0.01, 10.0] clamped per output
+end note
+mdl4 --> ltp4: predicted_thresholds[4]
+note right
+  [T0, T1, T2, T3]
+  where T0 > T1 > T2 > T3
+end note
+deactivate mdl4
+
+ltp4 -> ltp4: Post-processing:
+note right
+  1. Enforce monotonicity:
+     T0 > T1 > T2 > T3
+  2. Min gap: 0.01 between levels
+  3. Dead zone: |delta_per_level| < 0.01
+  4. Dwell: Min frames between changes
+  5. Clamp all to [0.01, 10.0]
+end note
+
+ltp4 -> rla4: ApplyThresholds(predicted_thresholds[4])
+activate rla4
+
+rla4 -> lg: For each LODGroup:
+note right
+  Apply all 4 thresholds
+  independently per LOD level:
+
+  LOD0: Shown when distance > T0
+  LOD1: Shown when distance > T1
+  LOD2: Shown when distance > T2
+  LOD3: Shown when distance > T3
+end note
+activate lg
+lg --> rla4: ✓ all thresholds applied
+deactivate lg
+
+rla4 --> ltp4: complete
+deactivate rla4
+
+ltp4 --> sc: thresholds updated
+deactivate ltp4
+
+note over sc, lg
+  **Key Difference from Stage 2:**
+  Stage 2: Single scalar threshold for whole LOD system
+  Stage 3: Four independent thresholds, one per LOD level
+  → More granular control, better per-LOD optimization
+end note
+
+@enduml

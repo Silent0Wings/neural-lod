@@ -1,0 +1,109 @@
+@startuml Stage_4_Evaluation_RLResults
+
+title Stage 4: Evaluation - RL Results Analysis (Activity)
+
+start
+
+:Load eval_rl_*.csv;
+:Load baseline comparison;
+
+:Measure reward components;
+:Mean reward per step;
+:Mean reward per episode;
+
+:Win rate analysis;
+:How often does RL beat baseline?;
+
+if (win_rate > 40%?) then (yes)
+  :✓ WINNING (better than baseline)
+else (no)
+  :⚠ LOSING (worse than baseline)
+endif
+
+:Expected return trajectory;
+:Plot cumulative reward over episodes;
+
+:Flip rate measurement;
+:Total bias changes per second;
+:Target: < 1.0 Hz (ideally < 0.5);
+
+if (flip_rate > 1.0 Hz?) then (yes)
+  :⚠ JITTERY (visible popping)
+else (no)
+  :✓ STABLE (acceptable)
+endif
+
+:Filter effectiveness;
+:Count frames where dwell prevented action;
+:Count frames where EMA smoothed delta;
+
+:Flicker detection;
+:Frame-to-frame bias delta histogram;
+
+:GPU frame time analysis;
+:Mean, P95, P99 latency;
+
+:Over-budget frames (%);
+
+:GPU savings estimation;
+:Compare RL bias vs fixed baseline;
+
+:Inference cost;
+:MLP forward pass duration: ~0.05-0.10 ms;
+
+:Net gain calculation;
+:Net = GPU_Savings - inference_cost;
+
+if (net_gain > 0.5 ms?) then (yes)
+  :✓ PROFITABLE (strong ROI)
+else if (net_gain > 0.0 ms?) then (yes)
+  :~ BREAK-EVEN
+else (no)
+  :✗ LOSS (model too slow)
+endif
+
+:Generalization check;
+:Eval on unseen camera paths;
+:Eval on different scene scales;
+
+:Failure mode analysis;
+:Any cliffs or sharp edges?;
+
+if (all_tests_pass?) then (yes)
+  :✓ ROBUST
+else (no)
+  :⚠ NEEDS TUNING
+endif
+
+:Comparative analysis vs prior stages;
+:Stage 1 → 2 → 3 → 4;
+
+:Plot cumulative gains;
+:GPU savings per stage;
+
+if (stage_4_gain > stage_3_gain?) then (yes)
+  :✓ JUSTIFIES RL complexity
+else (no)
+  :⚠ Marginal benefit
+endif
+
+:Generate comprehensive evaluation report;
+
+note right
+  eval_rl_stage4_comparison.ipynb
+  Contains 12+ diagnostic plots:
+  - Reward trajectory
+  - Win rate
+  - Flip rate distribution
+  - Latency curves
+  - GPU savings
+  - Filter effectiveness
+  - Generalization results
+  - Stage-by-stage improvement
+end note
+
+:Print Summary Report;
+
+stop
+
+@enduml

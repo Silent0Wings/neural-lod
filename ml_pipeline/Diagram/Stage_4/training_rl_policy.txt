@@ -1,0 +1,138 @@
+@startuml Stage_4_Training_RLPolicy
+
+title Stage 4: RL Policy Training & Inference Loop (Sequence)
+
+participant "Game Loop" as gl
+participant "RLPolicyController" as rpc
+participant "RLFeatureExtractor" as rfe
+participant "Worker/Model" as mdl_rl
+participant "Stability Filters" as sf
+participant "RLRolloutLogger" as rrl
+
+note over rpc
+  **Stage 4 Context:**
+  - REINFORCE policy gradient training
+  - Closed-loop RL with neural policy
+  - Stability filters: Dwell Timer + EMA Smoothing
+  - Fallback: Rule-based policy if ONNX absent
+end note
+
+gl -> rpc: Update() every inference_interval frames
+activate rpc
+
+rpc -> rfe: GetNormalizedState()
+note right
+  Normalize features with
+  precomputed scaler JSON:
+  - 20 features (same as Stages 1-3)
+  - μ, σ from training data
+end note
+activate rfe
+rfe --> rpc: state_normalized[20]
+deactivate rfe
+
+alt ONNX Model Available
+  rpc -> mdl_rl: Worker.Execute(state_normalized)
+  activate mdl_rl
+  mdl_rl -> mdl_rl: Policy MLP forward pass
+  note right
+    Input: 20 normalized features
+    Hidden: 64 → 32 → 16
+    Output: 1 (bias delta in [-0.20, +0.20])
+  end note
+  mdl_rl --> rpc: raw_action_delta
+  deactivate mdl_rl
+
+else No ONNX (Null Collection Phase)
+  rpc -> rpc: Fallback rule-based policy:
+  note right
+    if gpu_ms > SelectedTargetMs:
+      action = -0.05 (reduce aggression)
+    else:
+      action = +0.05 (increase aggression)
+
+    Keeps data aligned with RL rewards
+  end note
+  rpc --> rpc: raw_action_delta
+end
+
+rpc -> sf: ApplyStabilityFilters(raw_action_delta)
+activate sf
+
+sf -> sf: Filter 1: Dead Zone
+note right
+  if |delta| < 0.02:
+    delta = 0 (ignore micro-noise)
+end note
+
+sf -> sf: Filter 2: Dwell Timer
+note right
+  if frames_since_last_change < dwell_frames:
+    delta = 0 (prevent rapid switching)
+
+  dwell_frames = 5-10 (from scaler JSON)
+  dwellSeconds = 0.5s minimum
+end note
+
+sf -> sf: Filter 3: EMA Smoothing
+note right
+  delta_smoothed =
+    α * raw_delta + (1-α) * prev_delta
+
+  α = 0.2 (from scaler JSON)
+  Dampens oscillation
+end note
+
+sf -> sf: Filter 4: Bias Clamp
+note right
+  applied_delta = clamp(
+    delta_smoothed,
+    -0.20, +0.20
+  )
+
+  new_bias = clamp(
+    current_bias + applied_delta,
+    0.30, 2.00
+  )
+end note
+
+sf --> rpc: applied_delta (post-filters)
+deactivate sf
+
+rpc -> rpc: Update bias:
+note right
+  current_bias += applied_delta
+  Track _lastChangeFrame for dwell
+end note
+
+rpc -> rrl: LogAction(applied_delta)
+note right
+  Record to CSV:
+  - Step number
+  - Applied delta
+  - Current bias
+  - Rewards (GPU, inference, stability)
+end note
+activate rrl
+rrl --> rpc: ✓ logged
+deactivate rrl
+
+rpc --> gl: Bias updated
+deactivate rpc
+
+note over gl, rrl
+  **Training Loop (Offline):**
+  1. Collect rollout data (null + mixed phases)
+  2. Compute rewards per frame
+  3. Compute returns (discounted cumsum)
+  4. REINFORCE: ∇ J ∝ ∑ ∇log(π) * G_t
+  5. Optuna hyperparameter search
+  6. Evaluate & export ONNX
+
+  **The "Twitchy Genius" Fix:**
+  Raw model output oscillated 3Hz
+  Solution: Dwell (500ms min) + EMA (α=0.2)
+  Result: Stable @ 0.3-0.5 Hz, net gain restored
+end note
+
+@enduml

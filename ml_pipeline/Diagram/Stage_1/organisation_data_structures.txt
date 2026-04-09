@@ -1,0 +1,89 @@
+@startuml Stage_1_Organisation_DataStructures
+
+title Stage 1: Data Organisation & Processing (Component)
+
+package "Feature Extraction Pipeline" {
+
+  component [LODFeatureExtractor] as lfe
+  note right of lfe
+    Normalizes raw game data into
+    ML-ready features (20D vector)
+  end note
+
+  component [ScalerJSON] as scaler
+  note right of scaler
+    Precomputed mean/std for
+    feature normalization
+  end note
+
+  component [RawGameState] as raw
+  note right of raw
+    - Camera position (x, y, z)
+    - Camera rotation (euler x, y, z)
+    - Screen coverage (%)
+    - Visible renderers count
+    - CPU/GPU frame times (ms)
+    - LOD bias (current)
+    - Move speed, Rotate speed
+    - Angular velocity
+    - Frame headroom
+  end note
+
+  component [NormalizedFeatures] as norm
+  note right of norm
+    20D normalized vector:
+    - position_x_norm
+    - position_y_norm
+    - position_z_norm
+    - rotation_x_norm
+    - rotation_y_norm
+    - rotation_z_norm
+    - screen_coverage_norm
+    - visible_renderers_norm
+    - cpu_frame_time_norm
+    - gpu_frame_time_norm
+    - lod_bias_norm
+    - move_speed_norm
+    - rotate_speed_norm
+    - angular_velocity_norm
+    - frame_headroom_norm
+    - [5 additional engineered features]
+  end note
+
+  lfe --> scaler: Load mean/std
+  raw --> lfe: Read frame data
+  lfe --> norm: Normalize & engineer
+}
+
+package "Data Format Transformation" {
+
+  component [CSV Row] as csv
+  note right of csv
+    Raw CSV format from MetricLogger
+    Columns: frame_idx, cpu_ms, gpu_ms,
+    triangles, draw_calls, etc.
+  end note
+
+  component [UnityEngine.Vector3] as vec
+  note right of vec
+    Vector3.x, Vector3.y, Vector3.z
+    Used internally for position/rotation
+  end note
+
+  csv --> vec: Extract position_xyz
+  csv --> vec: Extract rotation_xyz
+}
+
+package "Data Pipeline Output" {
+
+  component [Training CSV] as out
+  note right of out
+    Columns: source_file, all_raw_features,
+    target_lod_bias (from oracle)
+    Ready for ML training
+  end note
+
+  norm --> out: All normalized features
+}
+
+@enduml

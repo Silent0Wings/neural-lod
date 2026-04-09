@@ -1,0 +1,120 @@
+@startuml Stage_2_DataCollection_BakerPipeline
+
+title Stage 2: Baker Scene Data Collection Pipeline (Activity)
+
+start
+
+:BakerOrchestrator.StartBaking();
+note right
+  Master controller for scene-specific
+  LOD data generation (Baker scene)
+end note
+
+:Step 1: LODCollector.ScanScene();
+note right
+  collect_lods
+end note
+:Query all GameObjects with LOD component;
+:For each LOD object:
+  - Store reference ID
+  - Record transition thresholds [T0, T1, T2, T3];
+:Output: lod_objects.csv;
+
+:Step 2: BoundingBoxGridGenerator.GenerateGrid();
+note right
+  generate_bounding_box_grid
+end note
+:Calculate scene bounding box
+(min/max x, y, z);
+:Subdivide into 3D grid
+(default: 20×20×20 cells);
+:For each grid cell:
+  - Store center point (x, y, z)
+  - Store volume bounds;
+:Output: grid_points.json;
+:Grid size: ~8,000 sample points;
+
+:Step 3: RotationSampler.StartSampling();
+note right
+  rotation_sampling
+end note
+
+while (More grid points?) is (yes)
+  note right
+    Outer loop: ~8,000 iterations
+  end note
+
+  while (More rotation configurations?) is (yes)
+    note right
+      Inner loop: 6×6×6 = 216 rotations
+      Coarse angular steps (~60° each)
+    end note
+
+    while (More LOD levels (0,1,2,3)?) is (yes)
+      note right
+        Per-LOD rendering cost measurement
+      end note
+
+      :Set camera to grid point;
+      :Rotate camera to current angles;
+      :Apply LOD level;
+      :Render frame & measure:
+        - Frame time (CPU, GPU)
+        - Triangle count
+        - Draw calls
+        - Screen coverage;
+      :LODMetricsRecorder captures metrics;
+    endwhile (no)
+
+    :Store SampleRecord:
+      note right
+        {
+          point_id,
+          rotation_angles,
+          lod_level,
+          performance_metric (frame_time_ms)
+        }
+      end note
+  endwhile (no)
+
+endwhile (no)
+
+:Step 4: ThresholdLabeler.LabelSession();
+note right
+  label_and_train
+end note
+while (More SampleRecords?) is (yes)
+  :Determine optimal threshold distribution
+  that minimizes frame time;
+  :Attach label: [T0_opt, T1_opt, T2_opt, T3_opt];
+  :Create LabelledSample;
+endwhile (no)
+
+:Output: sample_records_labeled.csv;
+note right
+  ~1.7M rows (8000 points × 216 rotations)
+  Columns: point_id, rot_x, rot_y, rot_z,
+  lod_level, cpu_ms, gpu_ms, triangles,
+  draw_calls, optimal_thresholds[4]
+end note
+
+:Step 5: DatasetExporter.Export();
+note right
+  export
+end note
+:Aggregate all LabelledSamples;
+:Split: Train (80%) / Val (20%);
+:Write to CSV file;
+
+:Output: ml_pipeline/data/baker_labeled_dataset.csv;
+
+note right
+  Total Collection Time: 2-4 hours per scene
+  Data Volume: 1.7M rows per scene
+  (8000 points × 216 rotations/point)
+  Purpose: Train per-object threshold predictor
+end note
+
+stop
+
+@enduml

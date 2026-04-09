@@ -1,0 +1,98 @@
+@startuml Stage_4_InferenceFlowDetailed
+
+title Stage 4: RL Policy Inference Pipeline
+
+object GameState
+object Extraction
+object Normalized
+object MLP
+object RawAction
+object DeadZone
+object Smoothed
+object DwellTimer
+object Clamped
+object Applied
+object Logged
+
+GameState : 13 raw features
+GameState : cpu frame time
+GameState : gpu frame time
+GameState : fps
+GameState : visible renderer count
+GameState : triangle count
+GameState : draw call count
+GameState : camera speed
+
+Extraction : RLFeatureExtractor
+Extraction : Extract 13 features
+Extraction : Load scaler JSON
+Extraction : Normalize: (f-m)/s
+Extraction : Fixed feature order
+
+Normalized : 13-dim vector
+Normalized : Mean = 0
+Normalized : Std dev = 1
+Normalized : Ready for MLP
+
+MLP : L1: 13 -> 256 ReLU
+MLP : L2: 256 -> 64 ReLU
+MLP : L3: 64 -> 32 ReLU
+MLP : Out: 32 -> 1 Linear
+MLP : ~21,857 parameters
+MLP : Inference: 0.5-1ms
+
+RawAction : Unbounded output
+RawAction : mu = tanh(net)*0.2
+RawAction : Range: [-0.2, +0.2]
+RawAction : Gaussian policy
+
+DeadZone : if abs(mu) < 0.02
+DeadZone : then mu = 0
+DeadZone : Suppress GPU noise
+DeadZone : Filter 1 of 4
+
+Smoothed : mu = 0.2*raw
+Smoothed : + 0.8*previous
+Smoothed : EMA alpha = 0.2
+Smoothed : Dampen oscillations
+
+DwellTimer : if frames < 5
+DwellTimer : then action = 0
+DwellTimer : Enforce 0.5s minimum
+DwellTimer : Prevent rapid switch
+
+Clamped : action in [-0.2, +0.2]
+Clamped : bias in [0.30, 2.00]
+Clamped : Runtime guardrails
+Clamped : Recovery assist
+
+Applied : Update QualitySettings
+Applied : Apply lodBias delta
+Applied : Current frame active
+Applied : Next frame: measure
+
+Logged : Log CSV row
+Logged : action_raw, action_final
+Logged : cpu_ms, gpu_ms
+Logged : reward components
+
+GameState --> Extraction
+Extraction --> Normalized
+Normalized --> MLP
+MLP --> RawAction
+RawAction --> DeadZone
+DeadZone --> Smoothed
+Smoothed --> DwellTimer
+DwellTimer --> Clamped
+Clamped --> Applied
+Applied --> Logged
+
+note bottom of Logged
+  TRAINING FEEDBACK:
+  Collected rollouts flow to training
+  Compute discounted returns
+  REINFORCE: maximize E[log(pi)*G]
+  Update network weights via gradient
+end note
+
+@enduml

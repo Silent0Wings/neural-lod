@@ -1,0 +1,65 @@
+@startuml Stage_2_Organisation_DataStructures
+
+title Stage 2: Data Organisation & Processing (Class Diagram)
+
+class GridPoint {
+  int point_id
+  float x, y, z
+  Vector3 center
+  Bounds volume_bounds
+}
+
+class LODObjectInfo {
+  string reference_id
+  int lod_count
+  float[] thresholds
+  Renderer[] renderers
+}
+
+class SampleRecord {
+  int point_id
+  Vector3 rotation_angles
+  int lod_level
+  float cpu_frame_time_ms
+  float gpu_frame_time_ms
+  int triangle_count
+  int draw_call_count
+}
+
+class LabelledSample {
+  SampleRecord sample_record
+  float[] optimal_thresholds
+  float quality_score
+}
+
+class ProfilingSession {
+  string session_id
+  DateTime start_time
+  int total_grid_points
+  int total_rotation_configs
+  List<GridPoint> grid_points
+  List<SampleRecord> sample_records
+  List<LabelledSample> labelled_samples
+}
+
+class ThresholdLabeler {
+  ProfilingSession session
+  List<LabelledSample> ComputeOptimalThresholds()
+  float EvaluateThresholdQuality(float[] thresholds)
+}
+
+class DatasetExporter {
+  ProfilingSession session
+  void ExportToCSV(string output_path)
+  void SplitTrainVal(float train_ratio)
+}
+
+GridPoint "0..*" -- "1" ProfilingSession : contains
+LODObjectInfo "0..*" -- "1" ProfilingSession : references
+SampleRecord "0..*" -- "1" ProfilingSession : collects
+SampleRecord "1" -- "1" LabelledSample : wrapped_by
+LabelledSample "0..*" -- "1" ProfilingSession : labels
+ThresholdLabeler -- ProfilingSession : operates on
+DatasetExporter -- ProfilingSession : exports
+
+@enduml

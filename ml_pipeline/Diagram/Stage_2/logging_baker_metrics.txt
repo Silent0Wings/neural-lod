@@ -1,0 +1,90 @@
+@startuml Stage_2_Logging_BakerMetrics
+
+title Stage 2: Logging & Metrics Collection (Sequence)
+
+participant "RotationSampler Loop" as rsl
+participant "LODMetricsRecorder" as lmr
+participant "ProfilerRecorder" as pr
+participant "Frame Timing API" as ft
+participant "Sample Buffer" as buf
+participant "CSV Writer" as cw
+
+loop for each grid point
+  loop for each rotation config (216 total)
+    loop for each LOD level (0-3)
+
+      rsl -> rsl: Set camera position & rotation
+      rsl -> rsl: Apply LOD level
+
+      rsl -> lmr: OnFrameRender()
+      activate lmr
+
+      lmr -> pr: Sample performance metrics
+      activate pr
+      note right of pr
+        - Triangle count
+        - Draw calls
+        - SetPass calls
+        - GPU memory
+      end note
+      pr --> lmr: metric data
+      deactivate pr
+
+      lmr -> ft: GetFrameTimingInfoAndReset()
+      activate ft
+      ft --> lmr: cpu_ms, gpu_ms
+      deactivate ft
+
+      lmr -> lmr: Build SampleRecord:
+      note right of lmr
+        {
+          point_id,
+          rotation (x,y,z),
+          lod_level,
+          cpu_frame_time_ms,
+          gpu_frame_time_ms,
+          triangle_count,
+          draw_call_count
+        }
+      end note
+
+      lmr -> buf: Add SampleRecord
+      activate buf
+
+      alt Buffer reaches flush size (1000 records)
+        buf -> cw: Flush batch
+        activate cw
+        cw -> cw: Write rows to CSV
+        deactivate cw
+        buf -> buf: Clear
+      end
+
+      deactivate buf
+      deactivate lmr
+
+    end
+  end
+end
+
+lmr -> cw: Final flush
+activate cw
+cw -> cw: Close file
+deactivate cw
+
+note bottom
+  **Output CSV Columns:**
+  point_id, rotation_x, rotation_y, rotation_z,
+  lod_level, cpu_frame_time_ms, gpu_frame_time_ms,
+  triangle_count, draw_call_count
+
+  **Output Path:**
+  ml_pipeline/data/baker_sample_records.csv
+
+  **Total Rows:**
+  ~1.7M (8000 points × 216 configs/point)
+
+  **Logging Rate:**
+  ~60 FPS × measurement_duration
+end note
+
+@enduml

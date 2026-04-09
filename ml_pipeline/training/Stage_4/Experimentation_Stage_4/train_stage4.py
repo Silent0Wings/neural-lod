@@ -3,7 +3,8 @@ Stage 4: RL LOD Policy Training Pipeline - Main Entry Point
 Orchestrates the full notebook pipeline: load → clean → reward → train → diagnose → export.
 
 Usage:
-    uv run run_pipeline.py
+    uv run train_stage4.py
+    python train_stage4.py
 """
 # /// script
 # dependencies = [

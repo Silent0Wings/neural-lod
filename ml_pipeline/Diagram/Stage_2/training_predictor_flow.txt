@@ -1,0 +1,73 @@
+@startuml Stage_2_Training_Predictor_Flow
+
+title Stage 2: Threshold Predictor Training & Inference (Sequence)
+
+participant "Scene" as sc
+participant "LODThresholdPredictor" as ltp
+participant "RLFeatureExtractor" as rfe
+participant "Worker/Model" as mdl
+participant "RuntimeLODApplicator" as rla
+participant "LODGroup" as lg
+
+note over sc
+  **Stage 2 Context:**
+  - Single scalar threshold per LOD transition
+  - Trained on baker-generated data
+  - Scene-specific predictor (per-object thresholds)
+end note
+
+sc -> ltp: Update() every inference_interval frames
+activate ltp
+
+ltp -> rfe: GetNormalizedFeatures()
+note right
+  Extract 20 features:
+  - Camera position (x, y, z)
+  - Camera rotation (euler)
+  - Screen coverage
+  - Rendering complexity (triangles, draw calls)
+  - Current threshold
+  - etc.
+end note
+activate rfe
+rfe --> ltp: features[20]
+deactivate rfe
+
+ltp -> mdl: Worker.Execute(features)
+activate mdl
+mdl -> mdl: MLP forward pass
+note right
+  3 hidden layers (64→32→16)
+  Output: Single scalar threshold
+  Range: [0.01, 10.0]
+end note
+mdl --> ltp: predicted_threshold
+deactivate mdl
+
+ltp -> ltp: Stability Controls:
+note right
+  1. Dead zone: |delta| < 0.01 → ignore
+  2. Hysteresis: Min change to apply
+  3. Dwell: Min frames between changes
+  4. Clamp: [0.01, 10.0]
+end note
+
+ltp -> rla: ApplyThreshold(predicted_threshold)
+activate rla
+
+rla -> lg: For each LODGroup in scene:
+note right
+  Set transition height for this LOD level
+  based on predicted threshold
+end note
+activate lg
+lg --> rla: ✓ threshold applied
+deactivate lg
+
+rla --> ltp: complete
+deactivate rla
+
+ltp --> sc: threshold updated
+deactivate ltp
+
+@enduml
