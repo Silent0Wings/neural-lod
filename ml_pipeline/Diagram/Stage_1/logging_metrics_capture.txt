@@ -36,20 +36,19 @@ loop every frame during logging session
 
   ml -> ml: Build CSV row:
   note right of ml
-    frame_idx,
-    cpu_frame_time_ms,
-    gpu_frame_time_ms,
-    visible_triangles,
-    draw_calls,
-    setpass_calls,
-    move_speed,
-    rotate_speed,
-    lod_bias_current,
-    camera_pos_x/y/z,
-    camera_rot_x/y/z,
-    screen_coverage_pct,
-    angular_velocity,
-    frame_headroom_ms
+    Col 1-2: cpu_frame_time_ms, gpu_frame_time_ms
+    Col 3-4: triangle_count, camera_velocity
+    Col 5-6: visible_renderer_count, lod_bias_current
+    Col 7-8: fps, camera_angular_velocity
+    Col 9-10: draw_call_estimate, previous_bias
+    Col 11: frame_headroom_ms
+    Col 12-14: cam_pos_x/y/z
+    Col 15: cam_rot_y
+    Col 16: screen_coverage
+    Col 17-18: move_speed, rotate_speed
+    Col 19-20: waypoint_index, path_progress
+    Col 21-23: draw_calls, batches_count, setpass_calls
+    Col 24: target_lod_bias
   end note
 
   ml -> buf: Append row to buffer

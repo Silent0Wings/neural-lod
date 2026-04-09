@@ -1,139 +1,145 @@
 @startuml Stage_4_Logging_RolloutMetrics
 
-title Stage 4: Logging & Rollout Metrics (Sequence)
+title Stage 4: RL Rollout Logging (Sequence)
 
 participant "Game Loop" as gl
 participant "RLPolicyController" as rpc
+participant "RLFeatureExtractor" as rfe
 participant "RLRolloutLogger" as rrl
-participant "RewardCompute" as rc
-participant "Frame Metrics" as fm
-participant "CSV Buffer" as buf
-participant "CSV Writer" as cw
+participant "Row Buffer" as buf
+participant "StreamWriter" as sw
+participant "CSV File" as csv
 
-loop for each episode
-  loop for each step in episode
-    gl -> rpc: Update()
+loop for each episode (8 episodes max)
+  note left of rrl
+    StartEpisode() called
+    Creates: rollout_ep{N}_{timestamp}.csv
+  end note
+
+  loop for each step (1024 steps max per episode)
+    gl -> rpc: Update()\n(every 2 frames)
     activate rpc
 
-    rpc -> rpc: Execute action (with filters)
+    rpc -> rpc: PolicyMLP inference
+    rpc -> rpc: Get raw action (unbounded)
 
-    rpc -> fm: Capture frame metrics
-    activate fm
-    note right of fm
-      - CPU frame time
-      - GPU frame time
-      - Triangles, draw calls
-      - Current bias
-      - Screen coverage
+    rpc -> rpc: ApplyWithGuardrails()
+    note right of rpc
+      - Dead zone (0.02)
+      - EMA smoothing (α=0.2)
+      - Dwell timer (5 frames min)
+      - Recovery/correction assist
+      → Snapshot bias BEFORE action
     end note
-    fm --> rpc: metrics
-    deactivate fm
 
-    rpc -> rc: ComputeReward(metrics)
-    activate rc
-    note right of rc
-      Reward components:
-      1. GPU savings component
-         reward_gpu = -α * gpu_delta_ms
-
-      2. Flip rate penalty
-         reward_flip = -β * is_switch
-
-      3. Stability bonus
-         reward_stability = γ * (1 - jitter_score)
-
-      total_reward =
-        reward_gpu + reward_flip + reward_stability
+    rpc -> rpc: Set QualitySettings.lodBias
+    note right of rpc
+      Committed next frame
     end note
-    rc --> rpc: total_reward
-    deactivate rc
 
-    rpc -> rrl: LogStep(state, action, reward)
+    gl -> rfe: Update()\n(every frame)
+    activate rfe
+    rfe -> rfe: FrameTimingManager.CaptureFrameTimings()
+    rfe -> rfe: Extract 13 raw features
+    note right of rfe
+      0: cpu_frame_time
+      1: gpu_frame_time ← REWARD SIGNAL
+      2: fps
+      3-5: visible_renderer_count, triangle_count, draw_call_count
+      6-7: camera_speed, rotation_speed
+      8: avg_screen_coverage
+      9: previous_bias
+      10-12: lod_switches, floor_dwell, ceiling_dwell
+    end note
+    rfe -> rfe: Normalize (scaler mean/scale)
+    rfe --> rpc: 13-dim feature vector
+    deactivate rfe
+
+    rpc -> rrl: ShouldLogDecisionFrame = true
     activate rrl
+    rrl -> rrl: LateUpdate() (after bias applied)
 
-    rrl -> rrl: Build rollout row:
+    rrl -> rrl: Build CSV row (23 columns)
     note right of rrl
-      episode_id,
-      step_number,
-      elapsed_seconds,
-      [state features 0-19],
-      action_delta (raw),
-      action_delta (applied after filters),
-      filter_applied_flags (dwell, EMA, deadzone),
-      cpu_frame_ms,
-      gpu_frame_ms,
-      triangles,
-      draw_calls,
-      current_bias,
-      screen_coverage,
-      reward_gpu,
-      reward_flip,
-      reward_stability,
-      total_reward
+      Col 1-2: episode, step
+      Col 3-4: cpu_frame_time, gpu_frame_time
+      Col 5: fps
+      Col 6-8: renderers, triangles, draw_calls
+      Col 9-10: camera_speed, rotation_speed
+      Col 11: screen_coverage
+      Col 12: previous_bias
+      Col 13-14: lod_switches, floor_dwell
+      Col 15: ceiling_dwell
+      Col 16: lod_bias_before_action (snapshotted)
+      Col 17: raw_action_delta (pre-guardrail)
+      Col 18: action_delta (post-guardrail)
+      Col 19: lod_bias_after_action
+      Col 20: selected_target_ms
+      Col 21: target_source (json_training or null_*)
+      Col 22: scene_target_ready (0/1)
+      Col 23: gpu_ms_at_target_lock
     end note
 
-    rrl -> buf: Append row
+    rrl -> buf: Append row to _rowBuffer
     activate buf
 
-    alt Buffer size >= 500 rows
-      buf -> cw: Flush batch
-      activate cw
-      cw -> cw: Write rows to CSV
-      deactivate cw
-      buf -> buf: Clear
+    alt _rowBuffer.Count >= bufferFlushInterval (120)
+      buf -> sw: FlushBuffer()
+      activate sw
+      loop for each row in buffer
+        sw -> csv: WriteLine(row)
+      end loop
+      sw -> csv: Flush()
+      sw --> buf: ✓ flushed
+      deactivate sw
+      buf -> buf: _rowBuffer.Clear()
     end
 
     deactivate buf
-    rrl --> rpc: ✓ logged
+    rrl -> rrl: _stepIndex++
     deactivate rrl
-
     deactivate rpc
 
+    alt _stepIndex >= stepsPerEpisode
+      rrl -> rrl: EndEpisode()
+      note right of rrl
+        Flush final rows
+        Close file
+        Reset episode state
+        _episodeIndex++
+      end note
+    end
+
   end
-
-  rrl -> rrl: End of episode:
-  note right of rrl
-    Compute episode summary:
-    - Total steps
-    - Cumulative reward
-    - Mean reward per step
-    - Flip rate (Hz)
-    - Max GPU time
-    - P95 latency
-    - Success flag
-  end note
-
 end
 
-rrl -> cw: Final flush & close
-activate cw
-cw -> cw: Close CSV file
-deactivate cw
+rrl -> sw: OnDestroy() FlushAndClose()
+activate sw
+sw -> csv: Close file
+deactivate sw
 
 note bottom
-  **Output CSV Path:**
-  ml_pipeline/data/Train_Runs/
-  rl_rollouts_YYYY-MM-DD_HH-MM-SS.csv
+  **Output Files:**
+  Path: Application.persistentDataPath/RLRollouts/
+  Format: rollout_ep{0:D4}_{timestamp}.csv
+  Example: rollout_ep0001_20260408_224156.csv
 
-  **CSV Columns: ~35**
-  - 20 state features
-  - 3 action fields (raw, applied, filtered flags)
-  - 5 frame metrics
-  - 4 reward components
-  - 2 episode/step identifiers
+  **Columns: Exactly 23**
+  (matches RLFeatureExtractor.ExpectedFeatureNames order)
 
-  **Total Rows:**
-  ~50-100K (typical: 30-50 episodes × 1K-3K steps/episode)
+  **Total Rows Per Episode:**
+  ~1024 (or less if early termination)
 
-  **Key Additions Over Stage 1-3:**
-  - Explicit reward columns (GPU, flip, stability)
-  - Action filtering flags (dwell, EMA, deadzone)
-  - Per-component reward tracking
+  **Total Episodes:**
+  ~8 episodes (configurable maxEpisodes)
 
-  **Sampling:**
-  One row per step
-  At 60 FPS: ~16-17 ms per step
-  Episodes: 10-60 seconds each
+  **Python Training Usage:**
+  - Read all CSVs from RLRollouts/
+  - Column 3 (gpu_frame_time) = reward signal
+  - Compute discounted returns (gamma=0.99)
+  - REINFORCE gradient update on policy
+  - Reward: r_t = (gpu_prev - gpu_current) + BONUS*(gpu_current <= 5.0ms)
+  - Clip to [-5.0, +5.0]
 end note
 
 @enduml

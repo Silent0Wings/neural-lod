@@ -26,28 +26,40 @@ end note
 :_totalRuns = biases × speeds × rotations;
 
 repeat
-  :Get next run parameters
-  (_currentBias, _currentSpeed, _currentRot);
+  :lodController.UpdateBias(bias)
+  → Set QualitySettings.lodBias;
 
-  :Set LODBiasController
-  → lodController.SetBias(_currentBias);
+  :cpa.ResetPath(newMoveSpeed)
+  → Reset camera to start;
 
-  :Start CameraPathAnimator
-  → cpa.StartPath(_speed, _rot);
+  :cpa.moveSpeed = speed
+  cpa.rotateSpeed = rotation;
 
-  :Wait Warmup Period
-  (_warmupDelay = 1.5s);
+  :cpa.IsPaused = false
+  → Camera starts moving;
+
+  :logger.enabled = false
+  → Prepare for warmup;
+
+  :_waitingForWarmup = true
+  _warmupTimer = 0;
   note right
-    Allows GPU/CPU to stabilize
-    before metric collection begins
+    Warmup delay = 1.5s
+    Allows GPU/CPU stabilization
+    Camera is moving during warmup
   end note
 
-  :MetricLogger.StartLogging()
-  → Collect frame metrics
-  (CPU, GPU, triangles, draw calls);
+  :Wait for warmupDelay seconds;
 
-  :Monitor progression
-  progression = currentRun / totalRuns;
+  :logger.ResetLogger(index, speed, rot)
+  → Open new CSV file
+  → Reset _validRows counter;
+
+  :logger.enabled = true
+  → Start collecting metrics
+  (24-column CSV, 5000 row target);
+
+  :progression = _currentRun / _totalRuns;
 
   repeat
     :Frame Loop:

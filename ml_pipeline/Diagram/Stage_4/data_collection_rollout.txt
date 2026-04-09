@@ -1,77 +1,115 @@
 @startuml Stage_4_DataCollection_Rollout
 
-title Stage 4: Data Collection - RL Rollout Episodes (Activity)
+title Stage 4: RL Rollout Collection (Activity)
 
 start
 
-:Initialize RLPolicyController;
-:Rule-based fallback (no ONNX yet);
+:RLRolloutLogger.Start()
+→ RLFeatureExtractor ready;
 
-:Stage 1: Null RL Collection;
 note right
-  Collecting labeled data
-  using hand-crafted rule
+  RLFeatureExtractor loads:
+  - Scaler JSON (13-feature normalization)
+  - Runtime contract constants
+  - Recovery/correction eligibility thresholds
 end note
 
 repeat
-  :Episode k: Start camera path;
+  :RLRolloutLogger.StartEpisode()
+  → Create new CSV: rollout_ep{N}_{timestamp}.csv;
+
+  note right
+    Episode parameters:
+    - _episodeIndex = N
+    - _stepIndex = 0
+    - _loggingActive = true
+  end note
+
+  :QualitySettings.lodBias = 1.0f
+  (Reset to neutral);
+
+  :_extractor.ResetEpisodeState()
+  → Clear dwell scores, switch ring buffer;
+
+  :_policyController.ResetEpisode()
+  → Reset bias + dwell counter;
 
   repeat
-    :Step t: RLPolicyController.Update()
-      1. Read state (20 features)
-      2. Apply rule-based policy
-      3. Execute bias change
-      4. Render frame
-      5. Measure reward;
-  repeat while (episode terminates?)
+    :RLPolicyController.Update()
+    (inference interval = every 2 frames);
 
-  :End of episode;
-  :Reset scene for next episode;
+    :RLFeatureExtractor.Update()
+    → Extract 13 features
+    (cpu, gpu, fps, renderers, triangles,
+     draw_calls, speed, rot_speed, coverage,
+     previous_bias, lod_switches, dwell_scores);
 
-repeat while (collecting enough data?)
+    :Normalize 13 features
+    using loaded scaler (mean/scale);
 
-:Stage 2: Mixed Data Training;
+    :Run inference on RL policy ONNX
+    → Get raw action delta
+    (unbounded from linear output);
+
+    :RLPolicyController.ApplyWithGuardrails()
+    → Snapshot bias before action
+    → Apply: dead zone, EMA, dwell, recovery;
+
+    :Set QualitySettings.lodBias
+    (committed in next frame);
+
+    if (ShouldLogDecisionFrame?) then (yes)
+      :RLRolloutLogger.LateUpdate()
+      → Write CSV row (23 columns);
+
+      note right
+        Cols 1-15: 13 features
+        Cols 16-23: bias states + actions
+      end note
+
+      :_stepIndex++;
+      :_rowBuffer.Add(row);
+
+      if (_rowBuffer.Count >= 120) then (yes)
+        :Flush rows to disk;
+      else (no)
+      endif
+
+    else (no)
+    endif
+
+  repeat while (stepsPerEpisode < _stepIndex?)
+
+  :RLRolloutLogger.EndEpisode();
+
+  :Flush remaining rows;
+  :Close file;
+
+  note right
+    Episode output:
+    - rollout_ep{N}_{timestamp}.csv
+    - {stepsPerEpisode} rows logged
+    - Path: Application.persistentDataPath/RLRollouts/
+  end note
+
+  :_episodeIndex++
+  :_extractor.ResetEpisodeState();
+
+repeat while (maxEpisodes < _episodeIndex?)
+
+:CollectionComplete = true;
+
+:Python training reads all CSVs from RLRollouts/
+→ Apply df_samples_clean filtering
+→ Compute discounted returns (gamma=0.99)
+→ REINFORCE: gradient update on policy;
+
 note right
-  RL model + rule-based fallback
-end note
-
-repeat
-  :Episode k (mixed phase);
-  :Start camera path;
-
-  repeat
-    :Step t: RLPolicyController.Update()
-      1. Load RL model (partially trained)
-      2. Get model action
-      3. Apply stability filters
-      4. Execute combined action
-      5. Measure reward;
-
-    note right
-      Reward = -alpha * gpu_delta
-               -beta * flip_rate
-               + gamma * stability
-    end note
-  repeat while (episode terminates?)
-
-  :Collect episode statistics;
-  :Mean reward, flip rate, max GPU time;
-
-repeat while (training phase complete?)
-
-:End collection;
-:Aggregate all rollouts into unified CSV;
-
-:Output training_data_rl_mixed.csv;
-
-note right
-  Columns: episode_id, step_number,
-  state_features[20], action_delta,
-  gpu_frame_time_ms, cpu_frame_time_ms,
-  reward_gpu, reward_flip, reward_stability,
-  total_reward, cumulative_return
-
-  ~50-100K rows total
+  Training signal from GPU frame time only
+  Python reward formula:
+  r_t = (gpu_prev - gpu_current)
+        + BONUS * (gpu_current <= target_ms)
+  Clipped to [-5.0, +5.0]
 end note
 
 stop
