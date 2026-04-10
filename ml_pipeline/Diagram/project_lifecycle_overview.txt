@@ -3,14 +3,18 @@
 title Neural LOD: Repository-Wide Lifecycle Map (Stages 1-4)
 
 skinparam component {
-  BackgroundColor<<Data>> #AED6F1
-  BorderColor<<Data>> #2E86C1
-  BackgroundColor<<Model>> #D5F5E3
-  BorderColor<<Model>> #239B56
-  BackgroundColor<<Logic>> #FADBD8
-  BorderColor<<Logic>> #CB4335
-}
+  BackgroundColor<<Data>>  #1A6496
+  BorderColor<<Data>>      #0D3E5F
+  FontColor<<Data>>        #FFFFFF
 
+  BackgroundColor<<Model>> #1E7B44
+  BorderColor<<Model>>     #124D2B
+  FontColor<<Model>>       #FFFFFF
+
+  BackgroundColor<<Logic>> #C0392B
+  BorderColor<<Logic>>     #7B241C
+  FontColor<<Logic>>       #FFFFFF
+}
 package "Stage 1: Scalar Bias" as S1 {
   component [MetricLogger] <<Logic>> as s1_log
   component [Hardset Path Data] <<Data>> as s1_data
