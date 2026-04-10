@@ -1,0 +1,30 @@
+@startuml
+!theme materia
+title Stage 2: Scene-Specific Baker Threshold Predictor
+
+package "Offline Phase (Baker)" {
+  [Scene Profiling] --> [Optimal Threshold Labels] : Grid-sampled GPU cost
+}
+
+package "Runtime Inference" {
+  node "Unity Camera" as CAM {
+    [Position XYZ]
+    [Rotation (Sin/Cos)]
+  }
+  
+  component "Baker MLP Model\n(171,009 params)" as MLP
+  component "Per-Object Thresholds" as THRESH
+}
+
+[Optimal Threshold Labels] --> MLP : supervised training
+CAM --> MLP : 9-feature pose vector
+MLP --> THRESH : predict optimal value
+THRESH --> [Unity LODGroups] : SetLODs() per object
+
+note bottom
+  Model uses spatial context
+  to predict object-specific
+  quality thresholds.
+end note
+
+@enduml

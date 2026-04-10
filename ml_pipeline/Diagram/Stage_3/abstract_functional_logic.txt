@@ -1,0 +1,32 @@
+@startuml
+!theme materia
+title Stage 3: 4-Value Threshold Vector Predictor
+
+node "Inference Controller" {
+  [Camera Pose]
+  [Local Geometry Density]
+}
+
+component "Vector MLP Model\n(44,740 params)" as MLP
+
+package "4-Value Threshold Vector" as VEC {
+  [T0: High Detail]
+  [T1: Mid Detail]
+  [T2: Low Detail]
+  [T3: Cull Boundary]
+}
+
+[Camera Pose] --> MLP
+[Local Geometry Density] --> MLP
+MLP --> VEC : predict monotonic vector
+
+VEC --> [LODGroup Components] : Independent Control\nper LOD level
+
+note right of VEC
+  Independent control over 
+  every transition band
+  allows aggressive savings
+  in low-detail levels.
+end note
+
+@enduml

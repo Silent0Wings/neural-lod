@@ -1,0 +1,15 @@
+@startuml
+title Global Threshold Bias Model
+
+component "Base Thresholds\n[T0, T1, T2]" as BASE
+component "Scene Metrics" as METRICS
+component "MLP Model" as MLP
+component "Global Bias B" as BIAS
+entity Object
+
+METRICS --> MLP
+MLP --> BIAS
+BASE --> Object
+BIAS --> Object : Adjust thresholds (T + B)
+
+@enduml

@@ -1,0 +1,16 @@
+@startuml
+title Grid + Orientation-Based Learning
+
+component "World Grid" as GRID
+component "Camera Orientation" as ORI
+entity Object
+component "MLP Model" as MLP
+component "Threshold Vector" as OUT
+
+GRID --> MLP
+ORI --> MLP
+Object --> MLP : Object features
+
+MLP --> OUT
+
+@enduml

@@ -1,0 +1,23 @@
+@startuml
+title MLP Per-Object Threshold Predictor
+
+component "Scene Metrics" {
+  [GPU Frame Time]
+  [CPU Frame Time]
+  [FPS]
+  [Object Distance]
+}
+
+component "MLP Model" as MLP
+component "Threshold Vector\n[T0, T1, ...]" as OUT
+entity Object
+
+[GPU Frame Time] --> MLP
+[CPU Frame Time] --> MLP
+[FPS] --> MLP
+[Object Distance] --> MLP
+
+MLP --> OUT
+OUT --> Object : Apply thresholds
+
+@enduml

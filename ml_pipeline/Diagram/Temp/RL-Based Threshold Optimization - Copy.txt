@@ -1,0 +1,15 @@
+@startuml
+title RL-Based Threshold Optimization
+
+actor Environment
+component "Agent (MLP Policy)" as AGENT
+component "Reward Signal\n(FPS, Quality)" as REWARD
+entity Object
+
+Environment --> AGENT : State (metrics)
+AGENT --> Object : Threshold action
+Object --> Environment : Rendering result
+Environment --> REWARD
+REWARD --> AGENT : Update policy
+
+@enduml

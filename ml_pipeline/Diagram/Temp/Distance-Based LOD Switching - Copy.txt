@@ -1,0 +1,14 @@
+@startuml
+title Distance-Based LOD Switching
+
+actor Camera
+entity Object
+component "Distance Calculator" as DC
+component "LOD Selector" as LOD
+
+Camera --> DC : camera position
+Object --> DC : object position
+DC --> LOD : distance d
+LOD --> Object : select LOD level
+
+@enduml

@@ -1,0 +1,28 @@
+@startuml
+!theme materia
+title Stage 4: REINFORCE RL Policy Controller
+
+node "Unity Engine State" as STATE {
+  [GPU MS]
+  [Current Bias]
+}
+
+component "Policy Agent\n(21,857 params)" as AGENT
+
+package "Stability Filter Stack" as FILTERS {
+  [Dead Zone]
+  [EMA Smoothing]
+  [Dwell Timer]
+}
+
+STATE --> AGENT : Observes metrics
+AGENT --> FILTERS : raw delta action
+FILTERS --> STATE : applied bias adjustment
+
+note bottom of STATE
+  Target: 5.0ms GPU time
+  Continuous reward loop
+  optimizes "Action Health"
+end note
+
+@enduml

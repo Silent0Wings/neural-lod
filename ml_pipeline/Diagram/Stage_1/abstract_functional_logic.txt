@@ -1,0 +1,23 @@
+@startuml
+!theme materia
+title Stage 1: Dynamic Scalar Bias Controller
+
+node "Unity Environment" as UNITY {
+  [Camera Telemetry]
+  [GPU/CPU Load]
+}
+
+component "LOD MLP Model\n(3,905 params)" as MLP
+component "Global Bias Value\n[0.25, 2.0]" as BIAS
+
+UNITY --> MLP : normalized metrics
+MLP --> BIAS : predicted scalar
+BIAS --> UNITY : adjust QualitySettings.lodBias
+
+note right of BIAS
+  Acts as a "smart volume knob"
+  adjusting scene-wide quality
+  to hit frame budget.
+end note
+
+@enduml
