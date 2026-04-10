@@ -1,0 +1,55 @@
+@startuml Stage_4_Restoration_Strategy
+!theme materia
+title Stage 4: RL Restoration Strategy (Phased Recovery Flow)
+
+skinparam state {
+  BackgroundColor<<Restoration>> #FEF9E7
+  BorderColor<<Restoration>> #F39C12
+  BackgroundColor<<Champion>> #EAFAF1
+  BorderColor<<Champion>> #27AE60
+}
+
+[*] --> NullPhase : Phase 1: Establish Baseline
+state NullPhase {
+  [*] --> RuleBasedCollection
+  RuleBasedCollection : **Mode:** onnxAsset = null
+  RuleBasedCollection : **Logic:** Fixed +/- 0.05 actions
+  RuleBasedCollection : **Data:** "Null Rollouts" (Stable baseline)
+}
+
+NullPhase --> ActivePhase : Phase 2: Exploration
+state ActivePhase {
+  [*] --> InitialRLPolicy
+  InitialRLPolicy : **Status:** Raw / Untrained
+  InitialRLPolicy : **Behavior:** Preferred negative actions near target
+  InitialRLPolicy : **Outcome:** **"Dirty Data"** (Policy Collapse)
+  InitialRLPolicy : **Issue:** Stuck at Floor% (56.64%)
+}
+
+ActivePhase --> RestorationPhase : Phase 3: Restoration Consensus
+state RestorationPhase <<Restoration>> {
+  [*] --> MixedDataTraining
+  MixedDataTraining : **Strategy:** Combine Null + Active data
+  MixedDataTraining : **Fix 1:** Apply **5.0ms Stress-Target**
+  MixedDataTraining : **Fix 2:** 6.0x Reward Multiplier
+  MixedDataTraining : **Fix 3:** 0.002 Molecular Precision
+}
+
+RestorationPhase --> PerfectedPhase : Phase 4: Perfection
+state PerfectedPhase <<Champion>> {
+  [*] --> ChampionModel
+  ChampionModel : **Result:** 93.6% Directional Accuracy
+  ChampionModel : **Deploy:** rl_policy_stage4.onnx
+  ChampionModel : **Stability:** 1.846Hz (Twitchy Genius resolved)
+}
+
+PerfectedPhase --> [*]
+
+note bottom of RestorationPhase
+  **Restoration Metrics:**
+  - Floor% reduced: 56.64% -> 31.94%
+  - Mean Bias raised: 0.711 -> 1.148
+  - Net gain restored
+end note
+
+@enduml

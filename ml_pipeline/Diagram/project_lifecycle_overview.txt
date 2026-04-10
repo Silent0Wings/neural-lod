@@ -1,0 +1,70 @@
+@startuml Project_Lifecycle_Overview
+!theme materia
+title Neural LOD: Repository-Wide Lifecycle Map (Stages 1-4)
+
+skinparam component {
+  BackgroundColor<<Data>> #AED6F1
+  BorderColor<<Data>> #2E86C1
+  BackgroundColor<<Model>> #D5F5E3
+  BorderColor<<Model>> #239B56
+  BackgroundColor<<Logic>> #FADBD8
+  BorderColor<<Logic>> #CB4335
+}
+
+package "Stage 1: Scalar Bias" as S1 {
+  component [MetricLogger] <<Logic>> as s1_log
+  component [Hardset Path Data] <<Data>> as s1_data
+  component [MLP Predictor v4] <<Model>> as s1_mdl
+  
+  s1_log --> s1_data : Collect (Standard)
+  note right of s1_data
+    **Volatility:** High
+    **Constraint:** Waypoint-specific
+  end note
+  s1_data --> s1_mdl : Train (Oracle v3)
+}
+
+package "Stage 2: Per-Object Baker" as S2 {
+  component [Baker Pipeline] <<Logic>> as s2_log
+  component [Baker Mesh Data] <<Data>> as s2_data
+  component [Baker MLP v7] <<Model>> as s2_mdl
+  
+  s2_log --> s2_data : Collect (3D Grid)
+  note right of s2_data
+    Profiles rendering cost
+    at thousands of poses
+  end note
+  s2_data --> s2_mdl : Train (Huber Loss)
+}
+
+package "Stage 3: Vector Predictor" as S3 {
+  component [Vector Predictor] <<Model>> as s3_mdl
+  s2_data --up--> s3_mdl : **REUSE DATA**
+  note top of s3_mdl
+    **New Model / Reused Data:**
+    Trains a 4-value predictor
+    without new collection time.
+  end note
+}
+
+package "Stage 4: REINFORCE RL" as S4 {
+  component [RLRolloutLogger] <<Logic>> as s4_log
+  component [Mixed RL Data] <<Data>> as s4_data
+  component [Champion RL Model] <<Model>> as s4_mdl
+  
+  s4_log --> s4_data : Collect (Null + Active)
+  s4_data --> s4_mdl : Train (REINFORCE)
+}
+
+s1_mdl -[hidden]- s2_mdl
+s2_mdl -[hidden]- s3_mdl
+s3_mdl -[hidden]- s4_mdl
+
+legend right
+  | Color | Type |
+  |<#AED6F1>| Data Artifact |
+  |<#D5F5E3>| Trained Model |
+  |<#FADBD8>| System Logic |
+end legend
+
+@enduml
