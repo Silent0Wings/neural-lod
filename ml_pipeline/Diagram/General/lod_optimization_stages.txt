@@ -1,0 +1,32 @@
+@startmindmap
+!theme materia
+header Neural LOD Project
+caption Evolution of LOD Optimization Approaches
+
+* LOD Optimization System
+-- Stage 1: Global Scalar Bias
+--- Focus: Project-wide Load Management
+--- Signal: Global CPU/GPU Frame Times
+--- Action: Predict single float (lodBias)
+--- Component: LODPredictor (3.9K params)
+
+-- Stage 2: Spatial Baker Thresholds
+--- Focus: Scene-Specific Calibration
+--- Tool: Rasterized Bounding Box Grid
+--- Method: Profiling-based Baker Pipeline
+--- Component: BakerPredictor (171K params)
+
+++ Stage 3: Granular Vector Predictor
++++ Focus: Per-Level Transition Control
++++ Granularity: Independent LOD0-3 thresholds
++++ Method: Multi-output MLP (GELU)
++++ Integration: Mono-behavioral SetLODs()
+
+++ Stage 4: Continuous RL Policy
++++ Focus: Dynamic Delta-Control & Stability
++++ Method: REINFORCE Algorithm
++++ Filters: EMA Smoothing + Dwell Timers
++++ Goal: 5.0ms Stress-Target Alignment (93.6% accuracy)
+
+footer Technical Implementation Progression
+@endmindmap
