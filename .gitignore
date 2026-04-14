@@ -1,3 +1,2 @@
-# Exclude all Markdown files except the root README
+# Exclude all Markdown files
 *.md
-!README.md
