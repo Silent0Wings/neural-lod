@@ -1,3 +1,6 @@
 # Exclude all Markdown files except README
 *.md
 !README.md
+
+# Keep the final report notebook local only
+Project_Repport/Neural_LOD_Final_Report.ipynb
