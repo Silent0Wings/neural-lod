@@ -1,162 +1,106 @@
-# Unity Scripts Analysis - PlantUML Diagrams
+# Neural LOD: Adaptive Level-of-Detail System
 
-Comprehensive PlantUML diagram suite analyzing the Neural LOD Unity scripts across all 4 stages, organized by functional category.
+![Project Hero](ml_pipeline/Demo_ScreenShots/The_Main_Scene_Demo_We_Optimised_For.png)
 
-## Diagram Organization
+> **Learning-Based Real-Time LOD Control for High-Performance Unity Rendering.**
 
-All diagrams are PlantUML `.txt` files organized by stage and category.
-
-### Stage 1: Scalar LOD Bias Prediction
-
-**Path:** `Stage_1/`
-
-| Category | File | Diagram Type | Purpose |
-|---|---|---|---|
-| **Training** | `training_inference_flow.txt` | Sequence | Model inference with stability controls (hysteresis, dwell, max delta) |
-| **Data Collection** | `data_collection_orchestration.txt` | Activity | Orchestrated multi-bias/speed/rotation parameter sweeps |
-| **Organisation** | `organisation_data_structures.txt` | Component | Feature extraction pipeline (20D normalized features) |
-| **Logging** | `logging_metrics_capture.txt` | Sequence | Frame-by-frame metrics collection into CSV rows |
-| **Evaluation** | `evaluation_metrics.txt` | Activity | Performance analysis (latency, stability, efficiency) |
+Neural LOD is a sophisticated machine-learning framework designed to replace static Level-of-Detail (LOD) policies with intelligent, context-aware neural controllers. By analyzing runtime telemetry, the system dynamically predicts optimal LOD thresholds to maximize visual fidelity while strictly adhering to a frame-time budget.
 
 ---
 
-### Stage 2: Per-Object Threshold Prediction
+## 🚀 Key Achievements
 
-**Path:** `Stage_2/`
-
-| Category | File | Diagram Type | Purpose |
-|---|---|---|---|
-| **Training** | `training_predictor_flow.txt` | Sequence | Threshold predictor inference on baker-generated data |
-| **Data Collection** | `data_collection_baker_pipeline.txt` | Activity | 5-step baker pipeline (LOD collect → grid gen → sample → label → export) |
-| **Organisation** | `organisation_data_structures.txt` | Class | Data classes (GridPoint, SampleRecord, LabelledSample, ProfilingSession) |
-| **Logging** | `logging_baker_metrics.txt` | Sequence | Per-LOD-level metrics collection (~1.7M rows) |
-| **Evaluation** | `evaluation_comparison.txt` | Activity | Model vs oracle comparison (MAE, spatial heatmaps, ROI analysis) |
+- **MAE = 0.039** bias units in Stage 1 v4 model.
+- **7.7% Reduction** in over-budget frames (from 55.2% to 47.5%).
+- **Jitter-Free Stability** achieved via EMA smoothing and dwell timers.
+- **Full Implementation**: 4 training stages complete, from scalar bias to RL policy.
+- **Seamless Integration**: Models deployed as ONNX via Unity Sentis (`com.unity.ai.inference`).
 
 ---
 
-### Stage 3: 4-Value Threshold Vectors
+## 🗺️ Project Lifecycle
 
-**Path:** `Stage_3/`
+The development of Neural LOD followed a rigorous 4-stage evolution, capturing increasingly complex spatial and performance features.
 
-| Category | File | Diagram Type | Purpose |
-|---|---|---|---|
-| **Training** | `training_4value_predictor.txt` | Sequence | 4-output MLP with monotonicity enforcement (T0 > T1 > T2 > T3) |
-| **Data Collection** | *Inherits from Stage 2* | — | Reuses baker pipeline, applies 4-value relabeling |
-| **Organisation** | `organisation_4value_structures.txt` | Component | Threshold vector processing and model architecture |
-| **Logging** | `logging_4value_telemetry.txt` | Sequence | Extended telemetry with per-LOD threshold tracking |
-| **Evaluation** | `evaluation_4value_analysis.txt` | Activity | Per-LOD MAE, monotonicity, stability, ROI per-level analysis |
+![Lifecycle Map](ml_pipeline/Diagram/Project_Lifecycle_Overview.png)
 
----
+### 1. Stage 1: Dynamic Scalar Predictor
+Focuses on the global `QualitySettings.lodBias`. It learns from gameplay telemetry to adjust the overall scene detail based on camera speed and current performance.
+- **Features**: 19D (Navigation + Rendering state).
+- **Result**: Proved the feasibility of neural LOD control.
 
-### Stage 4: REINFORCE RL with Stability Filters
+### 2. Stage 2: Spatial-Aware Baker
+Introduces the **Baker Pipeline**, which profiles the scene from thousands of grid points.
+- **Data**: 1.7M training samples using automated mesh scanning.
+- **Architecture**: 171K parameter MLP with BatchNorm and Dropout.
 
-**Path:** `Stage_4/`
+### 3. Stage 3: Vector Threshold Predictor
+Enables independent control over every LOD transition level (LOD0 through Cull) via a 4-value threshold vector.
+- **Features**: 13D spatial features.
+- **Result**: Granular control over visibility and transition pops.
 
-| Category | File | Diagram Type | Purpose |
-|---|---|---|---|
-| **Training** | `training_rl_policy.txt` | Sequence | RL policy inference + stability filters (dwell timer + EMA smoothing) |
-| **Data Collection** | `data_collection_rollout.txt` | Activity | Two-phase collection (null rule-based → mixed RL + rule) |
-| **Organisation** | `organisation_rl_structures.txt` | Class | RolloutStep, RolloutEpisode, RewardFunction, StabilityFilters |
-| **Logging** | `logging_rollout_metrics.txt` | Sequence | RL-specific telemetry (rewards, filter flags, rollout metrics) |
-| **Evaluation** | `evaluation_rl_results.txt` | Activity | Policy performance, stability, latency, robustness, stacked improvements |
-
----
-
-## Diagram Types Used
-
-### By Category
-
-| Category | Preferred Type | Rationale |
-|---|---|---|
-| **Training** | Sequence | Shows step-by-step inference flow, decision points, filter application |
-| **Data Collection** | Activity | Shows orchestrated multi-step pipeline with nested loops, branching |
-| **Organisation & Processing** | Component/Class | Shows data structures, transformations, pipeline stages |
-| **Logging** | Sequence | Shows frame-by-frame capture, buffering, I/O operations |
-| **Evaluation** | Activity | Shows analytical workflow, metric computation, decision trees |
-
-### Summary
-
-- **Sequence Diagrams (8):** Training, Logging across all stages
-- **Activity Diagrams (8):** Data Collection, Evaluation across all stages  
-- **Class/Component Diagrams (4):** Organisation & Processing for each stage
+### 4. Stage 4: Reinforcement Learning (REINFORCE)
+Replaces supervised labels with a REINFORCE policy that balances **FPS Targets** against **Visual Quality**.
+- **Stability**: Implements Dead Zones, EMA Smoothing (α=0.2), and Dwell Timers (500ms).
+- **Outcome**: Eliminated LOD oscillation (reduced from 3Hz to <0.5Hz).
 
 ---
 
-## How to Use These Diagrams
+## 🧠 Technical Architecture
 
-1. **Understand a stage's architecture:**
-   - Read Training + Data Collection diagrams first
-   - Then review Organisation structures
-   - Check Logging pipeline for data output format
-   - Study Evaluation criteria for success metrics
+Neural LOD bridges the gap between high-level Python ML pipelines and low-level Unity C# rendering logic.
 
-2. **Trace data flow:**
-   - Start with Data Collection (Activity)
-   - Follow to Organisation (structures)
-   - See how it feeds into Training (Sequence)
-   - Check Logging output format
+```mermaid
+graph TD
+    A[Unity Gameplay] -->|Telemetry| B(CSV Logger)
+    B --> C[PyTorch Pipeline]
+    C -->|Training| D[MLP / RL Policy]
+    D -->|Export| E[ONNX Model]
+    E -->|Inference| F[Unity Sentis Engine]
+    F -->|Control| G[LOD Bias / Thresholds]
+    G --> A
+```
 
-3. **Understand stability mechanisms:**
-   - Stage 1: Hysteresis + Dwell + Max Delta
-   - Stage 2: Same + Monotonicity enforcement (implicit)
-   - Stage 3: Same + Per-LOD monotonicity (explicit)
-   - Stage 4: Dead Zone + Dwell Timer + EMA Smoothing
-
-4. **Compare improvements across stages:**
-   - Stage 1 → 2: Spatial awareness (grid-based)
-   - Stage 2 → 3: Per-level control (4 independent thresholds)
-   - Stage 3 → 4: Adaptive closed-loop (RL policy)
+### Deployed Model Specs
+| Stage | Model Type | Parameters | Activation |
+| :--- | :--- | :--- | :--- |
+| **Stage 1** | MLP (Scalar) | 3,905 | ReLU / Sigmoid |
+| **Stage 2** | MLP (Per-Object) | 171,009 | ReLU / Sigmoid |
+| **Stage 3** | MLP (Vector) | 44,740 | GELU / Sigmoid |
+| **Stage 4** | RL Policy | 21,857 | ReLU / Linear |
 
 ---
 
-## Key Insights by Stage
+## 📊 Results Summary
 
-### Stage 1
-- **Focus:** Basic neural LOD bias prediction
-- **Data:** Multi-parameter sweeps (bias × speed × rotation)
-- **Stability:** Runtime guards (hysteresis, dwell, clamping)
-- **Output:** Per-frame bias adjustment
-
-### Stage 2
-- **Focus:** Scene-specific baker with spatial awareness
-- **Data:** 8K grid points × 216 rotations = 1.7M training samples
-- **Stability:** Label monotonicity + runtime enforcement
-- **Output:** Single threshold per LOD transition
-
-### Stage 3
-- **Focus:** Independent per-LOD-level thresholds
-- **Data:** Same baker data, relabeled for 4 outputs
-- **Stability:** Strict monotonicity + per-level min gaps
-- **Output:** Vector [T0, T1, T2, T3] for independent control
-
-### Stage 4
-- **Focus:** Closed-loop RL with reward-driven adaptation
-- **Data:** Two-phase rollouts (null baseline → mixed training)
-- **Stability:** Dwell (500ms min) + EMA (α=0.2) filters
-- **Output:** Bias delta clamped to [-0.20, +0.20]
+| Metric | Fixed Baseline | Neural LOD (Stage 4) | Improvement |
+| :--- | :--- | :--- | :--- |
+| **Over-Budget Frames** | 55.2% | **47.5%** | **-7.7%** |
+| **LOD Switch Rate** | 2.30% | **0.76%** | **-67% Jitter** |
+| **Switch Frequency** | ~3.0 Hz | **0.3 - 0.5 Hz** | **Steady Visuals** |
 
 ---
 
-## Testing These Diagrams
+## 📂 Repository Structure
 
-To render PlantUML diagrams:
-
-1. **Online:** Visit [PlantUML Online Editor](https://www.plantuml.com/plantuml/uml/)
-2. **Local:** Install PlantUML + Graphviz, run:
-   ```bash
-   plantuml Stage_1/training_inference_flow.txt
-   ```
-3. **VSCode:** Install PlantUML extension, open `.txt` file, preview
+- **[.agents](.agents/)**: Local directives and AI skills.
+- **[Assets/Script](Assets/Script/)**: Unity C# implementation (Stages 0-4).
+- **[ml_pipeline/training](ml_pipeline/training/)**: PyTorch training notebooks and scripts.
+- **[ml_pipeline/models](ml_pipeline/models/)**: Deployed ONNX assets.
+- **[ml_pipeline/Diagram](ml_pipeline/Diagram/)**: High-fidelity architectural diagrams. ([Technical Index](ml_pipeline/Diagram/README.md))
+- **[ml_pipeline/docs](ml_pipeline/docs/)**: Detailed project reports and LaTeX documentation.
 
 ---
 
-## References
+## 🛠️ How to Run
 
-- **Scripts Location:** `C:\Users\Gica\neural-lod\Assets\Script\Stage_*`
-- **Stage Documentation:** `C:\Users\Gica\neural-lod\ml_pipeline\docs\Stage_*.md`
-- **Python Scripts:** `C:\Users\Gica\neural-lod\ml_pipeline\scripts\`, `ml_pipeline\training\`
+1. **Unity Setup**: Open the project in Unity 6 LTS. Ensure `com.unity.ai.inference` is installed.
+2. **Data Collection**: Use the `StageSelector` UI in the Main Scene to select a stage and trigger automated playback.
+3. **Training**: Scripts are located in `ml_pipeline/training/[Stage]/`.
+4. **Deployment**: Models are automatically loaded from `ml_pipeline/models/` at runtime.
 
 ---
 
-**Generated:** 2026-04-08  
-**Purpose:** Visual documentation of Neural LOD Unity architecture across all stages
+Maintainer: **Silent0Wings**  
+Course: **COMP 432 - Learning-Based Adaptive Level-of-Detail Control**  
+Last Updated: **2026-04-14**
