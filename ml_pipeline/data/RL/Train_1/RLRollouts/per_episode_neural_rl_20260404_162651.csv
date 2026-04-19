@@ -1,0 +1,4 @@
+run_label,episode,total_frames,episode_return,mean_gpu_ms,mean_fps,mean_lod_bias,action_mean,action_variance,switch_count_total
+neural_rl,0,973,2.380800,6.7160,63.25,1.9249,0.001439,0.000327,128
+neural_rl,1,1024,253.466100,5.3315,61.62,1.8983,0.001562,0.000251,104
+neural_rl,2,11,0.346112,6.6159,59.94,1.9727,0.009091,0.000372,2
